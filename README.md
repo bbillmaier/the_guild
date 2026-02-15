@@ -25,6 +25,15 @@ In the output, you'll find options to open the app in a
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
+## Local SQL database
+
+This app now uses a local SQLite database file (`guild.db`) with no separate database server.
+
+- Native SQLite logic lives in **`lib/local-db.native.ts`**
+- Web fallback logic lives in **`lib/local-db.web.ts`**
+- A working CRUD example is in **`app/(tabs)/index.tsx`**
+- On web, the same API falls back to browser `localStorage` to avoid WASM bundling issues.
+
 ## Get a fresh project
 
 When you're ready, run:
