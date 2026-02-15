@@ -4,7 +4,24 @@ export type GuildNote = {
   createdAt: string;
 };
 
+export type GuildCharacter = {
+  uid: string;
+  characterName: string;
+  className: string;
+  strength: number;
+  dexterity: number;
+  constitution: number;
+  intelligence: number;
+  wisdom: number;
+  charisma: number;
+  physDesc: string[];
+  metaDesc: string[];
+  race: string;
+  baseDescription: string;
+};
+
 const storageKey = 'guild_notes';
+const characterStorageKey = 'guild_characters';
 
 function readNotes(): GuildNote[] {
   try {
@@ -57,4 +74,18 @@ export async function addGuildNote(title: string) {
 export async function deleteGuildNote(id: number) {
   const notes = readNotes().filter((note) => note.id !== id);
   writeNotes(notes);
+}
+
+export async function listGuildCharacters() {
+  try {
+    const stored = globalThis.localStorage?.getItem(characterStorageKey);
+    if (!stored) {
+      return [] as GuildCharacter[];
+    }
+
+    const parsed = JSON.parse(stored) as GuildCharacter[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [] as GuildCharacter[];
+  }
 }
