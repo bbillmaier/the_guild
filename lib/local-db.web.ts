@@ -20,6 +20,8 @@ export type GuildCharacter = {
   baseDescription: string;
 };
 
+export type NewGuildCharacter = GuildCharacter;
+
 const storageKey = 'guild_notes';
 const characterStorageKey = 'guild_characters';
 
@@ -77,6 +79,20 @@ export async function deleteGuildNote(id: number) {
 }
 
 export async function listGuildCharacters() {
+  return readCharacters();
+}
+
+export async function insertGuildCharacter(character: NewGuildCharacter) {
+  const characters = readCharacters();
+  characters.push(character);
+  writeCharacters(characters);
+}
+
+export async function clearGuildCharacters() {
+  writeCharacters([]);
+}
+
+function readCharacters() {
   try {
     const stored = globalThis.localStorage?.getItem(characterStorageKey);
     if (!stored) {
@@ -87,5 +103,13 @@ export async function listGuildCharacters() {
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [] as GuildCharacter[];
+  }
+}
+
+function writeCharacters(characters: GuildCharacter[]) {
+  try {
+    globalThis.localStorage?.setItem(characterStorageKey, JSON.stringify(characters));
+  } catch (error) {
+    console.error(error);
   }
 }

@@ -22,6 +22,8 @@ export type GuildCharacter = {
   baseDescription: string;
 };
 
+export type NewGuildCharacter = GuildCharacter;
+
 const databasePromise = SQLite.openDatabaseAsync('guild.db');
 const latestMigrationVersion = 1;
 
@@ -163,6 +165,47 @@ export async function listGuildCharacters() {
     race: row.race,
     baseDescription: row.baseDescription,
   }));
+}
+
+export async function insertGuildCharacter(character: NewGuildCharacter) {
+  const database = await getDatabase();
+  await database.runAsync(
+    `
+      INSERT INTO characters (
+        uid,
+        character_name,
+        class,
+        strength,
+        dexterity,
+        constitution,
+        intelligence,
+        wisdom,
+        charisma,
+        physDesc,
+        metaDesc,
+        race,
+        baseDescription
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    `,
+    character.uid,
+    character.characterName,
+    character.className,
+    character.strength,
+    character.dexterity,
+    character.constitution,
+    character.intelligence,
+    character.wisdom,
+    character.charisma,
+    JSON.stringify(character.physDesc),
+    JSON.stringify(character.metaDesc),
+    character.race,
+    character.baseDescription
+  );
+}
+
+export async function clearGuildCharacters() {
+  const database = await getDatabase();
+  await database.runAsync('DELETE FROM characters;');
 }
 
 function parseJsonArray(value: string) {
