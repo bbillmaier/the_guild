@@ -4,9 +4,12 @@ export type GuildNote = {
   createdAt: string;
 };
 
+export type CharacterGender = 'male' | 'female' | 'unknown';
+
 export type GuildCharacter = {
   uid: string;
   characterName: string;
+  gender: CharacterGender;
   className: string;
   strength: number;
   dexterity: number;
@@ -100,7 +103,14 @@ function readCharacters() {
     }
 
     const parsed = JSON.parse(stored) as GuildCharacter[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) {
+      return [] as GuildCharacter[];
+    }
+
+    return parsed.map((character) => ({
+      ...character,
+      gender: parseCharacterGender(character.gender),
+    }));
   } catch {
     return [] as GuildCharacter[];
   }
@@ -112,4 +122,12 @@ function writeCharacters(characters: GuildCharacter[]) {
   } catch (error) {
     console.error(error);
   }
+}
+
+function parseCharacterGender(value: unknown): CharacterGender {
+  if (value === 'male' || value === 'female') {
+    return value;
+  }
+
+  return 'unknown';
 }

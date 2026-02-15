@@ -6,9 +6,12 @@ export type GuildNote = {
   createdAt: string;
 };
 
+export type CharacterGender = 'male' | 'female' | 'unknown';
+
 export type GuildCharacter = {
   uid: string;
   characterName: string;
+  gender: CharacterGender;
   className: string;
   strength: number;
   dexterity: number;
@@ -25,7 +28,7 @@ export type GuildCharacter = {
 export type NewGuildCharacter = GuildCharacter;
 
 const databasePromise = SQLite.openDatabaseAsync('guild.db');
-const latestMigrationVersion = 1;
+const latestMigrationVersion = 2;
 
 async function getDatabase() {
   return databasePromise;
@@ -50,6 +53,12 @@ export async function initializeDatabase() {
   if (currentVersion < 1) {
     await runMigrationV1(database);
     currentVersion = 1;
+    await database.runAsync('UPDATE schema_migrations SET version = ? WHERE id = 1;', currentVersion);
+  }
+
+  if (currentVersion < 2) {
+    await runMigrationV2(database);
+    currentVersion = 2;
     await database.runAsync('UPDATE schema_migrations SET version = ? WHERE id = 1;', currentVersion);
   }
 
@@ -90,6 +99,16 @@ async function runMigrationV1(database: SQLite.SQLiteDatabase) {
   `);
 }
 
+async function runMigrationV2(database: SQLite.SQLiteDatabase) {
+  const columns = await database.getAllAsync<{ name: string }>(`PRAGMA table_info(characters);`);
+  const hasGender = columns.some((column) => column.name === 'gender');
+  if (hasGender) {
+    return;
+  }
+
+  await database.execAsync(`ALTER TABLE characters ADD COLUMN gender TEXT NOT NULL DEFAULT 'unknown';`);
+}
+
 export async function listGuildNotes() {
   const database = await getDatabase();
   const rows = await database.getAllAsync<{
@@ -120,6 +139,7 @@ export async function listGuildCharacters() {
   const rows = await database.getAllAsync<{
     uid: string;
     character_name: string;
+    gender: string;
     class: string;
     strength: number;
     dexterity: number;
@@ -135,6 +155,7 @@ export async function listGuildCharacters() {
     SELECT
       uid,
       character_name,
+      gender,
       class,
       strength,
       dexterity,
@@ -153,6 +174,7 @@ export async function listGuildCharacters() {
   return rows.map((row) => ({
     uid: row.uid,
     characterName: row.character_name,
+    gender: parseGender(row.gender),
     className: row.class,
     strength: row.strength,
     dexterity: row.dexterity,
@@ -174,6 +196,7 @@ export async function insertGuildCharacter(character: NewGuildCharacter) {
       INSERT INTO characters (
         uid,
         character_name,
+        gender,
         class,
         strength,
         dexterity,
@@ -185,10 +208,11 @@ export async function insertGuildCharacter(character: NewGuildCharacter) {
         metaDesc,
         race,
         baseDescription
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     `,
     character.uid,
     character.characterName,
+    character.gender,
     character.className,
     character.strength,
     character.dexterity,
@@ -215,4 +239,12 @@ function parseJsonArray(value: string) {
   } catch {
     return [];
   }
+}
+
+function parseGender(value: string): CharacterGender {
+  if (value === 'male' || value === 'female') {
+    return value;
+  }
+
+  return 'unknown';
 }

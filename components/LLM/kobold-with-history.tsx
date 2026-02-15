@@ -3,21 +3,22 @@ import { Text } from 'react-native';
 
 const koboldApiEndpoint = 'http://localhost:5001/api';
 
-export type KoboldState = {
+export type KoboldWithHistoryState = {
   loading: boolean;
   response: string;
   error: string | null;
 };
 
-export type KoboldProps = {
+export type KoboldWithHistoryProps = {
   prompt: string;
+  history: string;
   auto?: boolean;
   onResponse?: (response: string) => void;
   onError?: (error: string) => void;
-  render?: (state: KoboldState) => ReactNode;
+  render?: (state: KoboldWithHistoryState) => ReactNode;
 };
 
-export async function callKoboldApi(prompt: string) {
+export async function callKoboldApiWithHistory(prompt: string, history: string) {
   const trimmedPrompt = prompt.trim();
   if (!trimmedPrompt) {
     return '';
@@ -28,7 +29,10 @@ export async function callKoboldApi(prompt: string) {
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ prompt: trimmedPrompt }),
+    body: JSON.stringify({
+      prompt: trimmedPrompt,
+      history,
+    }),
   });
 
   if (!response.ok) {
@@ -39,8 +43,15 @@ export async function callKoboldApi(prompt: string) {
   return extractResponseText(data);
 }
 
-export function Kobold({ prompt, auto = true, onResponse, onError, render }: KoboldProps) {
-  const [state, setState] = useState<KoboldState>({
+export function KoboldWithHistory({
+  prompt,
+  history,
+  auto = true,
+  onResponse,
+  onError,
+  render,
+}: KoboldWithHistoryProps) {
+  const [state, setState] = useState<KoboldWithHistoryState>({
     loading: false,
     response: '',
     error: null,
@@ -56,7 +67,7 @@ export function Kobold({ prompt, auto = true, onResponse, onError, render }: Kob
     setState((previous) => ({ ...previous, loading: true, error: null }));
 
     try {
-      const nextResponse = await callKoboldApi(trimmedPrompt);
+      const nextResponse = await callKoboldApiWithHistory(trimmedPrompt, history);
       setState({ loading: false, response: nextResponse, error: null });
       onResponse?.(nextResponse);
     } catch (error) {
@@ -64,7 +75,7 @@ export function Kobold({ prompt, auto = true, onResponse, onError, render }: Kob
       setState({ loading: false, response: '', error: message });
       onError?.(message);
     }
-  }, [onError, onResponse, prompt]);
+  }, [history, onError, onResponse, prompt]);
 
   useEffect(() => {
     if (!auto) {

@@ -1,6 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, StyleSheet } from 'react-native';
 
+import {
+  generateRandomCharacterName,
+  type CharacterGender,
+} from '@/components/characters/lists/name';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 
@@ -17,6 +21,7 @@ type CharacterStats = Record<StatKey, number>;
 export type GeneratedCharacter = {
   uid: string;
   characterName: string;
+  gender: CharacterGender;
   class: string;
   race: string;
   strength: number;
@@ -31,9 +36,9 @@ export type GeneratedCharacter = {
 };
 
 type CreateCharacterProps = {
-  characterName: string;
-  race: string;
-  className: string;
+  race?: string;
+  className?: string;
+  gender?: CharacterGender;
   onCreate?: (character: GeneratedCharacter) => void;
 };
 
@@ -72,19 +77,97 @@ const defaultPriority: StatKey[] = [
   'charisma',
 ];
 
-export function CreateCharacter({ characterName, race, className, onCreate }: CreateCharacterProps) {
+const availableRaces = [
+  'human',
+  'elf',
+  'dwarf',
+  'halfling',
+  'gnome',
+  'half-orc',
+  'tiefling',
+  'dragonborn',
+  'half-elf',
+  'aarakocra',
+  'aasimar',
+  'firbolg',
+  'genasi',
+  'goblin',
+  'goliath',
+  'hobgoblin',
+  'kobold',
+  'lizardfolk',
+  'orc',
+  'tabaxi',
+  'triton',
+  'yuan-ti',
+  'shadar-kai',
+  'eladrin',
+  'satyr',
+  'centaur',
+  'changeling',
+  'warforged',
+  'leonin',
+  'harengon',
+  'fairy',
+  'minotaur',
+  'tortle',
+];
+
+const availableClasses = Object.keys(classPriorityMap);
+const maxStatValue = 20;
+
+const raceBonusMap: Partial<Record<string, { plusTwo: StatKey; plusOne: StatKey }>> = {
+  elf: { plusTwo: 'dexterity', plusOne: 'intelligence' },
+  dwarf: { plusTwo: 'constitution', plusOne: 'wisdom' },
+  halfling: { plusTwo: 'dexterity', plusOne: 'charisma' },
+  gnome: { plusTwo: 'intelligence', plusOne: 'constitution' },
+  'half-orc': { plusTwo: 'strength', plusOne: 'constitution' },
+  tiefling: { plusTwo: 'charisma', plusOne: 'intelligence' },
+  dragonborn: { plusTwo: 'strength', plusOne: 'charisma' },
+  'half-elf': { plusTwo: 'charisma', plusOne: 'dexterity' },
+  aarakocra: { plusTwo: 'dexterity', plusOne: 'wisdom' },
+  aasimar: { plusTwo: 'charisma', plusOne: 'wisdom' },
+  firbolg: { plusTwo: 'wisdom', plusOne: 'strength' },
+  genasi: { plusTwo: 'constitution', plusOne: 'intelligence' },
+  goblin: { plusTwo: 'dexterity', plusOne: 'constitution' },
+  goliath: { plusTwo: 'strength', plusOne: 'constitution' },
+  hobgoblin: { plusTwo: 'constitution', plusOne: 'intelligence' },
+  kobold: { plusTwo: 'dexterity', plusOne: 'charisma' },
+  lizardfolk: { plusTwo: 'constitution', plusOne: 'wisdom' },
+  orc: { plusTwo: 'strength', plusOne: 'constitution' },
+  tabaxi: { plusTwo: 'dexterity', plusOne: 'charisma' },
+  triton: { plusTwo: 'strength', plusOne: 'charisma' },
+  'yuan-ti': { plusTwo: 'charisma', plusOne: 'intelligence' },
+  'shadar-kai': { plusTwo: 'dexterity', plusOne: 'constitution' },
+  eladrin: { plusTwo: 'dexterity', plusOne: 'charisma' },
+  satyr: { plusTwo: 'charisma', plusOne: 'dexterity' },
+  centaur: { plusTwo: 'strength', plusOne: 'wisdom' },
+  changeling: { plusTwo: 'charisma', plusOne: 'dexterity' },
+  warforged: { plusTwo: 'constitution', plusOne: 'strength' },
+  leonin: { plusTwo: 'strength', plusOne: 'constitution' },
+  harengon: { plusTwo: 'dexterity', plusOne: 'wisdom' },
+  fairy: { plusTwo: 'dexterity', plusOne: 'charisma' },
+  minotaur: { plusTwo: 'strength', plusOne: 'constitution' },
+  tortle: { plusTwo: 'strength', plusOne: 'wisdom' },
+};
+
+export function CreateCharacter({ race, className, gender, onCreate }: CreateCharacterProps) {
   const [generated, setGenerated] = useState<GeneratedCharacter | null>(null);
-  const normalizedName = useMemo(() => characterName.trim(), [characterName]);
-  const normalizedClass = useMemo(() => className.trim().toLowerCase(), [className]);
-  const priority = classPriorityMap[normalizedClass] ?? defaultPriority;
 
   function handleGenerate() {
-    const stats = generatePointBuyStats(priority);
+    const selectedRace = race?.trim() || pickRandom(availableRaces);
+    const selectedClass = className?.trim() || pickRandom(availableClasses);
+    const normalizedClass = selectedClass.toLowerCase();
+    const priority = classPriorityMap[normalizedClass] ?? defaultPriority;
+    const selectedGender = gender ?? pickRandomGender();
+    const pointBuyStats = generatePointBuyStats(priority);
+    const stats = applyRacialBonuses(pointBuyStats, selectedRace, priority);
     const character: GeneratedCharacter = {
       uid: createUid(),
-      characterName: normalizedName,
-      class: className.trim(),
-      race: race.trim(),
+      characterName: generateRandomCharacterName(selectedGender),
+      gender: selectedGender,
+      class: selectedClass,
+      race: selectedRace,
       ...stats,
       physDesc: [],
       metaDesc: [],
@@ -98,20 +181,19 @@ export function CreateCharacter({ characterName, race, className, onCreate }: Cr
   return (
     <ThemedView style={styles.container}>
       <ThemedText type="subtitle">Create Character</ThemedText>
-      <ThemedText>Name: {characterName || '(not set)'}</ThemedText>
-      <ThemedText>Race: {race || '(not set)'}</ThemedText>
-      <ThemedText>Class: {className || '(not set)'}</ThemedText>
+      <ThemedText>Name: random from list</ThemedText>
+      <ThemedText>Gender: {gender ?? 'random (50/50)'}</ThemedText>
+      <ThemedText>Race: {race?.trim() || 'random'}</ThemedText>
+      <ThemedText>Class: {className?.trim() || 'random'}</ThemedText>
 
-      <Pressable
-        style={styles.button}
-        onPress={handleGenerate}
-        disabled={!normalizedName || !race.trim() || !className.trim()}>
+      <Pressable style={styles.button} onPress={handleGenerate}>
         <ThemedText style={styles.buttonText}>Generate (27 Point Buy)</ThemedText>
       </Pressable>
 
       {generated ? (
         <ThemedView style={styles.previewCard}>
           <ThemedText type="defaultSemiBold">{generated.characterName}</ThemedText>
+          <ThemedText>Gender: {generated.gender}</ThemedText>
           <ThemedText>UID: {generated.uid}</ThemedText>
           <ThemedText>STR {generated.strength}</ThemedText>
           <ThemedText>DEX {generated.dexterity}</ThemedText>
@@ -231,6 +313,26 @@ function createUid() {
   }
 
   return `char-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+}
+
+function pickRandomGender(): CharacterGender {
+  return Math.random() < 0.5 ? 'male' : 'female';
+}
+
+function pickRandom<T>(values: T[]) {
+  return values[Math.floor(Math.random() * values.length)];
+}
+
+function applyRacialBonuses(stats: CharacterStats, race: string, priority: StatKey[]): CharacterStats {
+  const normalizedRace = race.trim().toLowerCase();
+  const explicitBonus = raceBonusMap[normalizedRace];
+  const bonus = explicitBonus ?? { plusTwo: priority[0], plusOne: priority[1] };
+
+  return {
+    ...stats,
+    [bonus.plusTwo]: Math.min(maxStatValue, stats[bonus.plusTwo] + 2),
+    [bonus.plusOne]: Math.min(maxStatValue, stats[bonus.plusOne] + 1),
+  };
 }
 
 const styles = StyleSheet.create({

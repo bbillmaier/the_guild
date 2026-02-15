@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 
 import { CreateCharacter, type GeneratedCharacter } from '@/components/characters/createCharacter';
+import { type CharacterGender } from '@/components/characters/lists/name';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import {
@@ -15,9 +16,9 @@ import {
 export default function ViewCharListScreen() {
   const [characters, setCharacters] = useState<GuildCharacter[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [characterName, setCharacterName] = useState('');
   const [race, setRace] = useState('');
   const [className, setClassName] = useState('');
+  const [genderInput, setGenderInput] = useState('');
 
   async function loadCharacters() {
     try {
@@ -40,6 +41,7 @@ export default function ViewCharListScreen() {
       await insertGuildCharacter({
         uid: character.uid,
         characterName: character.characterName,
+        gender: character.gender,
         className: character.class,
         strength: character.strength,
         dexterity: character.dexterity,
@@ -77,12 +79,6 @@ export default function ViewCharListScreen() {
       <ThemedView style={styles.formCard}>
         <ThemedText type="defaultSemiBold">Test Character Creator</ThemedText>
         <TextInput
-          placeholder="Character name"
-          value={characterName}
-          onChangeText={setCharacterName}
-          style={styles.input}
-        />
-        <TextInput
           placeholder="Race (e.g. human)"
           value={race}
           onChangeText={setRace}
@@ -94,10 +90,16 @@ export default function ViewCharListScreen() {
           onChangeText={setClassName}
           style={styles.input}
         />
+        <TextInput
+          placeholder="Gender male/female (optional)"
+          value={genderInput}
+          onChangeText={setGenderInput}
+          style={styles.input}
+        />
         <CreateCharacter
-          characterName={characterName}
           race={race}
           className={className}
+          gender={parseGenderInput(genderInput)}
           onCreate={(c) => void handleCreateCharacter(c)}
         />
       </ThemedView>
@@ -117,7 +119,8 @@ export default function ViewCharListScreen() {
           <ThemedView key={character.uid} style={styles.card}>
             <ThemedText type="defaultSemiBold">{character.characterName}</ThemedText>
             <ThemedText>
-              UID: {character.uid} | Class: {character.className} | Race: {character.race}
+              UID: {character.uid} | Gender: {character.gender} | Class: {character.className} |
+              Race: {character.race}
             </ThemedText>
             <ThemedText>
               STR {character.strength} DEX {character.dexterity} CON {character.constitution} INT{' '}
@@ -176,3 +179,12 @@ const styles = StyleSheet.create({
     color: '#B00020',
   },
 });
+
+function parseGenderInput(value: string): CharacterGender | undefined {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'male' || normalized === 'female') {
+    return normalized;
+  }
+
+  return undefined;
+}
