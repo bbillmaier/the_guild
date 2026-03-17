@@ -62,6 +62,40 @@ Both the final narrative and the raw event log are stored separately in `quest_h
 
 ---
 
+## Image generation
+
+Character portraits are generated via a local [ComfyUI](https://github.com/comfyanonymous/ComfyUI) server. The app ships two workflows:
+
+| Workflow | Model | Best for |
+|---|---|---|
+| `basic_image.json` | **zimage-turbo** (SDXL-based) | Fast generation, lower VRAM |
+| `basic_flux.json` | **Flux2-Klein 9B** | Highest quality, consistent characters |
+
+### Consistent characters without LoRAs
+
+The standout feature of the Flux2-Klein workflow is **lora-free character consistency**. Rather than training a per-character LoRA, the app builds a detailed physical description string from each character's stored attributes (race, build, hair, eyes, distinguishing features) and feeds it directly into the prompt. Flux2-Klein's strong prompt adherence is good enough that the same description reliably produces a recognisable character across multiple generations, with no fine-tuning required.
+
+### Required ComfyUI custom nodes
+
+Install missing nodes via the **ComfyUI Manager** (`Manager → Install Missing Custom Nodes` after loading a workflow):
+
+**For `basic_image.json` (zimage-turbo):**
+- [ComfyUI Impact Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) — provides `FaceDetailer`, `SAMLoader`, and `UltralyticsDetectorProvider` for automatic face upscaling and refinement
+
+**For `basic_flux.json` (Flux2-Klein):**
+- A Flux2 custom node pack providing `EmptyFlux2LatentImage` and `Flux2Scheduler` — search "Flux2" in the ComfyUI Manager node list
+
+### Setup
+
+1. Install and run [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
+2. Install the required custom nodes above via ComfyUI Manager
+3. Download your chosen model and place it in ComfyUI's `models/unet/` folder
+4. Point the app at your ComfyUI server URL in settings (default: `http://localhost:8188`)
+
+Image generation is entirely optional — the app works without it.
+
+---
+
 ## Requirements
 
 - [Node.js](https://nodejs.org/) 18 or newer
@@ -150,4 +184,5 @@ Then press:
 - [Electron](https://www.electronjs.org/) for desktop packaging
 - SQLite via `expo-sqlite` (native) / `sql.js` (Electron) / `localStorage` (browser)
 - [KoboldAI API](https://github.com/KoboldAI/KoboldAI-Client) for LLM text generation
+- [ComfyUI](https://github.com/comfyanonymous/ComfyUI) for image generation (optional)
 - TypeScript (strict mode)
