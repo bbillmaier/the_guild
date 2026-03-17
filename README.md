@@ -104,7 +104,7 @@ Image generation is entirely optional — the app works without it.
   - **Local** — run KoboldCpp directly on your machine if you have a capable GPU
   - **Cloud** — rent a GPU via a service like [RunPod](https://www.runpod.io/). The [official KoboldCpp RunPod template](https://console.runpod.io/hub/template/koboldcpp-official-template-text-image-voice?id=2peen7lpau) is a convenient starting point — deploy it, grab the public endpoint URL, and paste it into the app's settings.
   - Default endpoint: `http://localhost:5001` (change this in settings to point at a remote server)
-  - Any model works; a 7B–13B instruction-tuned model gives good results
+  - Any model works; a 7B–13B instruction-tuned model gives good results without sacrificing speed.
 
 ## Installation
 
