@@ -1,0 +1,52 @@
+appId: com.theguild.app
+productName: The Guild
+copyright: Copyright © 2025
+
+# Entry point after TypeScript compilation
+extraMetadata:
+  main: electron-dist/electron/main.js
+
+directories:
+  output: release
+  buildResources: build-resources
+
+# Files to include in the packaged app
+files:
+  - electron-dist/**/*
+  - dist/**/*
+  - node_modules/**/*
+  - package.json
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build-resources/icon.ico
+  signingHashAlgorithms: []
+  sign: null
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  warningsAsErrors: false
+  installerIcon: build-resources/icon.ico
+  uninstallerIcon: build-resources/icon.ico
+  shortcutName: The Guild
+
+mac:
+  target: dmg
+  icon: build-resources/icon.icns
+  category: public.app-category.games
+
+linux:
+  target: AppImage
+  icon: build-resources/icon.png
+  category: Game
+
+# sql.js is pure WASM — no native rebuild needed
+npmRebuild: false
+asar: true
+# WASM files can't be loaded from inside the ASAR archive — unpack them
+asarUnpack:
+  - node_modules/sql.js/dist/sql-wasm.wasm
