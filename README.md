@@ -64,16 +64,17 @@ Both the final narrative and the raw event log are stored separately in `quest_h
 
 ## Image generation
 
-Character portraits are generated via a local [ComfyUI](https://github.com/comfyanonymous/ComfyUI) server. The app ships two workflows:
+Character portraits are generated via a local [ComfyUI](https://github.com/comfyanonymous/ComfyUI) server. The app ships three workflows:
 
 | Workflow | Model | Best for |
 |---|---|---|
 | `basic_image.json` | **zimage-turbo** (SDXL-based) | Fast generation, lower VRAM |
-| `basic_flux.json` | **Flux2-Klein 9B** | Highest quality, consistent characters |
+| `basic_flux.json` | **Flux2-Klein 9B** | High quality text-to-image |
+| `image_edit/flux_with_char_input.json` | **Flux2-Klein 9B** | Consistent character portraits |
 
 ### Consistent characters without LoRAs
 
-The standout feature of the Flux2-Klein workflow is **lora-free character consistency**. Rather than training a per-character LoRA, the app builds a detailed physical description string from each character's stored attributes (race, build, hair, eyes, distinguishing features) and feeds it directly into the prompt. Flux2-Klein's strong prompt adherence is good enough that the same description reliably produces a recognisable character across multiple generations, with no fine-tuning required.
+The `flux_with_char_input` workflow achieves **lora-free character consistency** using Flux2-Klein's image editing function. Rather than training a per-character LoRA, it takes an existing portrait of the character as input, encodes it as a reference latent via `ReferenceLatent`, and uses that as the conditioning anchor for the new generation. The model edits from the reference image rather than generating from scratch, so the character's face and key features remain stable across every new portrait — no fine-tuning required.
 
 ### Required ComfyUI custom nodes
 
@@ -82,8 +83,8 @@ Install missing nodes via the **ComfyUI Manager** (`Manager → Install Missing 
 **For `basic_image.json` (zimage-turbo):**
 - [ComfyUI Impact Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) — provides `FaceDetailer`, `SAMLoader`, and `UltralyticsDetectorProvider` for automatic face upscaling and refinement
 
-**For `basic_flux.json` (Flux2-Klein):**
-- A Flux2 custom node pack providing `EmptyFlux2LatentImage` and `Flux2Scheduler` — search "Flux2" in the ComfyUI Manager node list
+**For `basic_flux.json` and `flux_with_char_input.json` (Flux2-Klein):**
+- A Flux2 custom node pack providing `EmptyFlux2LatentImage`, `Flux2Scheduler`, and `ReferenceLatent` — search "Flux2" in the ComfyUI Manager node list
 
 ### Setup
 
