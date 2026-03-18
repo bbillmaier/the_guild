@@ -75,6 +75,7 @@ export type QuestDifficulty = 'easy' | 'medium' | 'hard' | 'deadly';
 export type QuestStatus = 'active' | 'completed' | 'failed';
 export type RoomType = 'combat' | 'challenge' | 'boss';
 export type RoomStatus = 'pending' | 'completed' | 'failed';
+export type QuestChainStatus = 'active' | 'completed' | 'failed';
 
 export type GuildQuest = {
   uid: string;
@@ -86,6 +87,19 @@ export type GuildQuest = {
   createdAt: string;
   narrative: string;
   summary: string;
+  chainUid: string | null;
+  chainDepth: number | null;
+};
+
+export type QuestChain = {
+  uid: string;
+  name: string;
+  premise: string;
+  storySoFar: string;
+  depth: number;      // which quest we are on (1-indexed)
+  maxDepth: number;   // total quests in chain (2 or 3)
+  status: QuestChainStatus;
+  createdAt: string;
 };
 
 export type QuestRoom = {
@@ -238,7 +252,7 @@ export type CharacterOpinion = {
 };
 
 const databasePromise = SQLite.openDatabaseAsync('guild.db');
-const latestMigrationVersion = 35;
+const latestMigrationVersion = 36;
 
 async function getDatabase() {
   return databasePromise;
@@ -467,6 +481,12 @@ export async function initializeDatabase() {
   if (currentVersion < 35) {
     await runMigrationV35(database);
     currentVersion = 35;
+    await database.runAsync('UPDATE schema_migrations SET version = ? WHERE id = 1;', currentVersion);
+  }
+
+  if (currentVersion < 36) {
+    await runMigrationV36(database);
+    currentVersion = 36;
     await database.runAsync('UPDATE schema_migrations SET version = ? WHERE id = 1;', currentVersion);
   }
 
@@ -861,6 +881,24 @@ async function runMigrationV34(database: SQLite.SQLiteDatabase) {
   `);
 }
 
+async function runMigrationV36(database: SQLite.SQLiteDatabase) {
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS quest_chains (
+      uid          TEXT PRIMARY KEY NOT NULL,
+      name         TEXT NOT NULL,
+      premise      TEXT NOT NULL,
+      story_so_far TEXT NOT NULL DEFAULT '',
+      depth        INTEGER NOT NULL DEFAULT 1,
+      max_depth    INTEGER NOT NULL DEFAULT 3,
+      status       TEXT NOT NULL DEFAULT 'active',
+      created_at   TEXT NOT NULL
+    );
+  `);
+  // SQLite allows adding nullable columns to existing tables
+  try { await database.execAsync(`ALTER TABLE quests ADD COLUMN chain_uid TEXT;`); } catch { /* already exists */ }
+  try { await database.execAsync(`ALTER TABLE quests ADD COLUMN chain_depth INTEGER;`); } catch { /* already exists */ }
+}
+
 async function runMigrationV35(database: SQLite.SQLiteDatabase) {
   await database.execAsync(`
     CREATE TABLE IF NOT EXISTS rumours (
@@ -1179,6 +1217,28 @@ export async function listRecentQuestHistory(limit = 10): Promise<QuestHistory[]
     keywords: JSON.parse(r.keywords) as string[],
     gameDay: r.game_day, createdAt: r.created_at,
   }));
+}
+
+export async function getQuestHistoryByQuestUid(questUid: string): Promise<QuestHistory | null> {
+  const database = await getDatabase();
+  const r = await database.getFirstAsync<{
+    uid: string; character_uid: string; quest_uid: string; quest_title: string;
+    biome: string; difficulty: string; level: number; outcome: string;
+    party_uids: string; party_names: string; summary: string; transcript: string;
+    keywords: string; game_day: number; created_at: string;
+  }>(`SELECT * FROM quest_history WHERE quest_uid = ? ORDER BY created_at ASC LIMIT 1;`, questUid);
+  if (!r) return null;
+  return {
+    uid: r.uid, characterUid: r.character_uid, questUid: r.quest_uid,
+    questTitle: r.quest_title, biome: r.biome,
+    difficulty: r.difficulty as QuestDifficulty, level: r.level,
+    outcome: r.outcome as 'success' | 'failure',
+    partyUids: JSON.parse(r.party_uids) as string[],
+    partyNames: JSON.parse(r.party_names) as string[],
+    summary: r.summary, transcript: r.transcript ?? '',
+    keywords: JSON.parse(r.keywords) as string[],
+    gameDay: r.game_day, createdAt: r.created_at,
+  };
 }
 
 // ─── Pending Quest Completions ────────────────────────────────────────────────
@@ -1683,16 +1743,10 @@ export async function unassignItem(itemUid: string): Promise<void> {
 export async function insertGuildQuest(quest: GuildQuest): Promise<void> {
   const database = await getDatabase();
   await database.runAsync(
-    `INSERT INTO quests (uid, title, difficulty, biome, level, status, created_at, narrative, summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
-    quest.uid,
-    quest.title,
-    quest.difficulty,
-    quest.biome,
-    quest.level,
-    quest.status,
-    quest.createdAt,
-    quest.narrative ?? '',
-    quest.summary ?? ''
+    `INSERT INTO quests (uid, title, difficulty, biome, level, status, created_at, narrative, summary, chain_uid, chain_depth) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+    quest.uid, quest.title, quest.difficulty, quest.biome, quest.level, quest.status,
+    quest.createdAt, quest.narrative ?? '', quest.summary ?? '',
+    quest.chainUid ?? null, quest.chainDepth ?? null,
   );
 }
 
@@ -1708,30 +1762,33 @@ export async function clearGuildQuests(): Promise<void> {
   await database.runAsync(`DELETE FROM quest_rooms;`);
 }
 
-export async function listGuildQuests(): Promise<GuildQuest[]> {
-  const database = await getDatabase();
-  const rows = await database.getAllAsync<{
-    uid: string;
-    title: string;
-    difficulty: string;
-    biome: string;
-    level: number;
-    status: string;
-    created_at: string;
-    narrative: string;
-    summary: string;
-  }>(`SELECT uid, title, difficulty, biome, level, status, created_at, narrative, summary FROM quests ORDER BY created_at DESC;`);
-  return rows.map((row) => ({
-    uid: row.uid,
-    title: row.title,
+type QuestRowFull = { uid: string; title: string; difficulty: string; biome: string; level: number; status: string; created_at: string; narrative: string; summary: string; chain_uid: string | null; chain_depth: number | null };
+function mapQuestRowFull(row: QuestRowFull): GuildQuest {
+  return {
+    uid: row.uid, title: row.title,
     difficulty: parseQuestDifficulty(row.difficulty),
-    biome: row.biome,
-    level: row.level,
+    biome: row.biome, level: row.level,
     status: parseQuestStatus(row.status),
     createdAt: row.created_at,
-    narrative: row.narrative ?? '',
-    summary: row.summary ?? '',
-  }));
+    narrative: row.narrative ?? '', summary: row.summary ?? '',
+    chainUid: row.chain_uid ?? null, chainDepth: row.chain_depth ?? null,
+  };
+}
+
+export async function listGuildQuests(): Promise<GuildQuest[]> {
+  const database = await getDatabase();
+  const rows = await database.getAllAsync<QuestRowFull>(
+    `SELECT uid, title, difficulty, biome, level, status, created_at, narrative, summary, chain_uid, chain_depth FROM quests ORDER BY created_at DESC;`
+  );
+  return rows.map(mapQuestRowFull);
+}
+
+export async function getGuildQuestByUid(uid: string): Promise<GuildQuest | null> {
+  const database = await getDatabase();
+  const row = await database.getFirstAsync<QuestRowFull>(
+    `SELECT uid, title, difficulty, biome, level, status, created_at, narrative, summary, chain_uid, chain_depth FROM quests WHERE uid = ?;`, uid
+  );
+  return row ? mapQuestRowFull(row) : null;
 }
 
 export async function insertQuestRoom(room: QuestRoom): Promise<void> {
@@ -2499,6 +2556,37 @@ export async function updateGuildEventSeedUseCommonQuest(uid: string, useCommonQ
 export async function deleteGuildEventSeed(uid: string): Promise<void> {
   const database = await getDatabase();
   await database.runAsync(`DELETE FROM guild_event_seeds WHERE uid = ?;`, uid);
+}
+
+// ─── Quest Chains ─────────────────────────────────────────────────────────────
+
+type ChainRow = { uid: string; name: string; premise: string; story_so_far: string; depth: number; max_depth: number; status: string; created_at: string };
+function mapChainRow(r: ChainRow): QuestChain {
+  return { uid: r.uid, name: r.name, premise: r.premise, storySoFar: r.story_so_far, depth: r.depth, maxDepth: r.max_depth, status: r.status as QuestChainStatus, createdAt: r.created_at };
+}
+
+export async function insertQuestChain(chain: QuestChain): Promise<void> {
+  const database = await getDatabase();
+  await database.runAsync(
+    `INSERT INTO quest_chains (uid, name, premise, story_so_far, depth, max_depth, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+    chain.uid, chain.name, chain.premise, chain.storySoFar, chain.depth, chain.maxDepth, chain.status, chain.createdAt,
+  );
+}
+
+export async function getQuestChain(uid: string): Promise<QuestChain | null> {
+  const database = await getDatabase();
+  const row = await database.getFirstAsync<ChainRow>(`SELECT * FROM quest_chains WHERE uid = ?;`, uid);
+  return row ? mapChainRow(row) : null;
+}
+
+export async function updateQuestChainStory(uid: string, storySoFar: string, depth: number): Promise<void> {
+  const database = await getDatabase();
+  await database.runAsync(`UPDATE quest_chains SET story_so_far = ?, depth = ? WHERE uid = ?;`, storySoFar, depth, uid);
+}
+
+export async function updateQuestChainStatus(uid: string, status: QuestChainStatus): Promise<void> {
+  const database = await getDatabase();
+  await database.runAsync(`UPDATE quest_chains SET status = ? WHERE uid = ?;`, status, uid);
 }
 
 // ─── Rumours ──────────────────────────────────────────────────────────────────

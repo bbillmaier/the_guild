@@ -21,11 +21,18 @@ import {
   markRumourUsed,
   type CharacterGender,
   type GuildQuest,
+  type QuestChain,
   type QuestDifficulty,
   type QuestRoom,
   type Rumour,
   type RoomType,
 } from '@/lib/local-db';
+
+export type ChainContext = {
+  chain: QuestChain;
+  playerAnswer: string;
+  outcome: 'success' | 'failure';
+};
 
 // ─── Internal types ───────────────────────────────────────────────────────────
 
@@ -235,6 +242,7 @@ export async function generateQuest(
   difficulty: QuestDifficulty,
   onStep?: (step: string) => void,
   seedRumour?: Rumour,
+  chainContext?: ChainContext,
 ): Promise<GuildQuest> {
   const step = (msg: string) => onStep?.(msg);
 
@@ -252,9 +260,22 @@ export async function generateQuest(
     ? `\nA rumour has been circulating in the area: "${seedRumour.text}"\nThe quest should be related to or inspired by this rumour.`
     : '';
 
+  const chainCtx = chainContext
+    ? [
+        `\nThis quest is part of an ongoing story called "${chainContext.chain.name}" (quest ${chainContext.chain.depth} of ${chainContext.chain.maxDepth}).`,
+        `Overarching premise: ${chainContext.chain.premise}`,
+        chainContext.chain.storySoFar ? `Story so far:\n${chainContext.chain.storySoFar}` : '',
+        chainContext.outcome === 'failure'
+          ? `The previous quest ended in failure. This quest continues despite that setback.`
+          : '',
+        `The guild's stated intention: ${chainContext.playerAnswer}`,
+        `The quest should feel like a direct continuation of this story.`,
+      ].filter(Boolean).join('\n')
+    : '';
+
   step('Generating quest title...');
   const titleRaw = await callKoboldApi(
-    `Write a 3 to 4 word fantasy quest title set in a ${biome.name.toLowerCase()}.${rumourCtx} Examples: "Fangs of the Fen", "Ruins of Ashveil", "Depths of Cindermaw". Output only the title — no quotes, no punctuation at the end, no explanation.`,
+    `Write a 3 to 4 word fantasy quest title set in a ${biome.name.toLowerCase()}.${rumourCtx}${chainCtx} Examples: "Fangs of the Fen", "Ruins of Ashveil", "Depths of Cindermaw". Output only the title — no quotes, no punctuation at the end, no explanation.`,
     10,
     'Quest: writing title...'
   );
@@ -262,7 +283,7 @@ export async function generateQuest(
 
   step('Generating quest summary...');
   const summaryRaw = await callKoboldApi(
-    `Write 2-3 sentences describing the goal and stakes of a quest called "${title}" set in a ${biome.name.toLowerCase()}.${rumourCtx} Mention the threat, the location, and what is at stake. Past tense, evocative. No game mechanics, no numbers. Output only the description.`,
+    `Write 2-3 sentences describing the goal and stakes of a quest called "${title}" set in a ${biome.name.toLowerCase()}.${rumourCtx}${chainCtx} Mention the threat, the location, and what is at stake. Past tense, evocative. No game mechanics, no numbers. Output only the description.`,
     150,
     'Quest: writing summary...'
   );
@@ -365,6 +386,8 @@ export async function generateQuest(
     createdAt: new Date().toISOString(),
     narrative: '',
     summary,
+    chainUid: chainContext?.chain.uid ?? null,
+    chainDepth: chainContext?.chain.depth ?? null,
   };
   await insertGuildQuest(quest);
   for (const room of rooms) {

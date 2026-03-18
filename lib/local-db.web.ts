@@ -165,6 +165,8 @@ export type GuildQuest = {
   createdAt: string;
   narrative: string;
   summary: string;
+  chainUid: string | null;
+  chainDepth: number | null;
 };
 
 export type QuestRoom = {
@@ -244,6 +246,19 @@ export type PendingQuestCompletion = {
   gold: number;
   itemData: GuildItem[];
   relationshipDelta: number;
+  createdAt: string;
+};
+
+export type QuestChainStatus = 'active' | 'completed' | 'failed';
+
+export type QuestChain = {
+  uid: string;
+  name: string;
+  premise: string;
+  storySoFar: string;
+  depth: number;
+  maxDepth: number;
+  status: QuestChainStatus;
   createdAt: string;
 };
 
@@ -655,12 +670,12 @@ export async function unassignItem(itemUid: string): Promise<void> {
 
 // ─── Quests ───────────────────────────────────────────────────────────────────
 
-type QuestRow = { uid: string; title: string; difficulty: string; biome: string; level: number; status: string; created_at: string; narrative: string; summary: string };
+type QuestRow = { uid: string; title: string; difficulty: string; biome: string; level: number; status: string; created_at: string; narrative: string; summary: string; chain_uid: string | null; chain_depth: number | null };
 function mapQuestRow(r: QuestRow): GuildQuest {
-  return { uid: r.uid, title: r.title, difficulty: parseQuestDifficulty(r.difficulty), biome: r.biome, level: r.level, status: parseQuestStatus(r.status), createdAt: r.created_at, narrative: r.narrative ?? '', summary: r.summary ?? '' };
+  return { uid: r.uid, title: r.title, difficulty: parseQuestDifficulty(r.difficulty), biome: r.biome, level: r.level, status: parseQuestStatus(r.status), createdAt: r.created_at, narrative: r.narrative ?? '', summary: r.summary ?? '', chainUid: r.chain_uid ?? null, chainDepth: r.chain_depth ?? null };
 }
 function readQuests(): GuildQuest[] {
-  return lsJson<GuildQuest[]>(questStorageKey, []).map((q) => ({ ...q, difficulty: parseQuestDifficulty(q.difficulty), status: parseQuestStatus(q.status), level: typeof q.level === 'number' ? q.level : 1, narrative: typeof q.narrative === 'string' ? q.narrative : '', summary: typeof q.summary === 'string' ? q.summary : '' }));
+  return lsJson<GuildQuest[]>(questStorageKey, []).map((q) => ({ ...q, difficulty: parseQuestDifficulty(q.difficulty), status: parseQuestStatus(q.status), level: typeof q.level === 'number' ? q.level : 1, narrative: typeof q.narrative === 'string' ? q.narrative : '', summary: typeof q.summary === 'string' ? q.summary : '', chainUid: q.chainUid ?? null, chainDepth: q.chainDepth ?? null }));
 }
 function writeQuests(qs: GuildQuest[]) { lsSet(questStorageKey, JSON.stringify(qs)); }
 type QuestRoomRow = { uid: string; quest_uid: string; room_number: number; room_type: string; description: string; content: string; status: string };
@@ -673,7 +688,7 @@ function readQuestRooms(): QuestRoom[] {
 function writeQuestRooms(rs: QuestRoom[]) { lsSet(questRoomStorageKey, JSON.stringify(rs)); }
 
 export async function insertGuildQuest(quest: GuildQuest): Promise<void> {
-  if (isElectron) { await eRun(`INSERT INTO quests (uid, title, difficulty, biome, level, status, created_at, narrative, summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`, [quest.uid, quest.title, quest.difficulty, quest.biome, quest.level, quest.status, quest.createdAt, quest.narrative ?? '', quest.summary ?? '']); return; }
+  if (isElectron) { await eRun(`INSERT INTO quests (uid, title, difficulty, biome, level, status, created_at, narrative, summary, chain_uid, chain_depth) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`, [quest.uid, quest.title, quest.difficulty, quest.biome, quest.level, quest.status, quest.createdAt, quest.narrative ?? '', quest.summary ?? '', quest.chainUid ?? null, quest.chainDepth ?? null]); return; }
   const qs = readQuests(); qs.push(quest); writeQuests(qs);
 }
 export async function deleteGuildQuest(uid: string): Promise<void> {
@@ -686,8 +701,12 @@ export async function clearGuildQuests(): Promise<void> {
   writeQuests([]); writeQuestRooms([]);
 }
 export async function listGuildQuests(): Promise<GuildQuest[]> {
-  if (isElectron) { return (await eAll<QuestRow>(`SELECT uid, title, difficulty, biome, level, status, created_at, narrative, summary FROM quests ORDER BY created_at DESC;`)).map(mapQuestRow); }
+  if (isElectron) { return (await eAll<QuestRow>(`SELECT uid, title, difficulty, biome, level, status, created_at, narrative, summary, chain_uid, chain_depth FROM quests ORDER BY created_at DESC;`)).map(mapQuestRow); }
   return readQuests().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+export async function getGuildQuestByUid(uid: string): Promise<GuildQuest | null> {
+  if (isElectron) { const r = await eGet<QuestRow>(`SELECT uid, title, difficulty, biome, level, status, created_at, narrative, summary, chain_uid, chain_depth FROM quests WHERE uid = ?;`, [uid]); return r ? mapQuestRow(r) : null; }
+  return readQuests().find((q) => q.uid === uid) ?? null;
 }
 export async function insertQuestRoom(room: QuestRoom): Promise<void> {
   if (isElectron) { await eRun(`INSERT INTO quest_rooms (uid, quest_uid, room_number, room_type, description, content, status) VALUES (?, ?, ?, ?, ?, ?, ?);`, [room.uid, room.questUid, room.roomNumber, room.roomType, room.description, room.content, room.status]); return; }
@@ -879,6 +898,38 @@ export async function listRecentQuestHistory(limit = 10): Promise<QuestHistory[]
     .sort((a, b) => b.gameDay - a.gameDay || b.createdAt.localeCompare(a.createdAt))
     .filter((r) => { if (seen.has(r.questUid)) return false; seen.add(r.questUid); return true; })
     .slice(0, limit);
+}
+
+export async function getQuestHistoryByQuestUid(questUid: string): Promise<QuestHistory | null> {
+  if (isElectron) { const r = await eGet<QuestHistoryRow>(`SELECT * FROM quest_history WHERE quest_uid = ? ORDER BY created_at ASC LIMIT 1;`, [questUid]); return r ? mapQHRow(r) : null; }
+  return readQuestHistory().filter((r) => r.questUid === questUid).sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0] ?? null;
+}
+
+// ─── Quest Chains ─────────────────────────────────────────────────────────────
+
+type ChainRow = { uid: string; name: string; premise: string; story_so_far: string; depth: number; max_depth: number; status: string; created_at: string };
+function mapChainRow(r: ChainRow): QuestChain {
+  return { uid: r.uid, name: r.name, premise: r.premise, storySoFar: r.story_so_far, depth: r.depth, maxDepth: r.max_depth, status: r.status as QuestChainStatus, createdAt: r.created_at };
+}
+const chainStorageKey = 'quest_chains';
+function readChains(): QuestChain[] { return lsJson<QuestChain[]>(chainStorageKey, []); }
+function writeChains(rows: QuestChain[]) { lsSet(chainStorageKey, JSON.stringify(rows)); }
+
+export async function insertQuestChain(chain: QuestChain): Promise<void> {
+  if (isElectron) { await eRun(`INSERT INTO quest_chains (uid, name, premise, story_so_far, depth, max_depth, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?);`, [chain.uid, chain.name, chain.premise, chain.storySoFar, chain.depth, chain.maxDepth, chain.status, chain.createdAt]); return; }
+  const rows = readChains().filter((c) => c.uid !== chain.uid); rows.unshift(chain); writeChains(rows);
+}
+export async function getQuestChain(uid: string): Promise<QuestChain | null> {
+  if (isElectron) { const r = await eGet<ChainRow>(`SELECT * FROM quest_chains WHERE uid = ?;`, [uid]); return r ? mapChainRow(r) : null; }
+  return readChains().find((c) => c.uid === uid) ?? null;
+}
+export async function updateQuestChainStory(uid: string, storySoFar: string, depth: number): Promise<void> {
+  if (isElectron) { await eRun(`UPDATE quest_chains SET story_so_far = ?, depth = ? WHERE uid = ?;`, [storySoFar, depth, uid]); return; }
+  writeChains(readChains().map((c) => c.uid === uid ? { ...c, storySoFar, depth } : c));
+}
+export async function updateQuestChainStatus(uid: string, status: QuestChainStatus): Promise<void> {
+  if (isElectron) { await eRun(`UPDATE quest_chains SET status = ? WHERE uid = ?;`, [status, uid]); return; }
+  writeChains(readChains().map((c) => c.uid === uid ? { ...c, status } : c));
 }
 
 // ─── Pending Quest Completions ────────────────────────────────────────────────

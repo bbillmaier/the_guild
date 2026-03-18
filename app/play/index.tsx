@@ -1,15 +1,20 @@
 import { router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, ScrollView, StyleSheet, View, Pressable } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Modal, ScrollView, StyleSheet, TextInput, View, Pressable } from 'react-native';
 
 import { CharacterAvatar } from '@/components/character-avatar';
 import { ThemedText } from '@/components/themed-text';
 import { faerunDateShort } from '@/lib/calendar';
-import { generateQuest, rollQuestDifficulty, rollQuestLevel } from '@/lib/generate-quest';
+import { generateQuest, rollQuestDifficulty, rollQuestLevel, type ChainContext } from '@/lib/generate-quest';
+import { generateChainPremise, generateChainPivot } from '@/lib/generate-quest-chain';
 import {
   advanceGameDay,
   getGameDay,
+  getGuildQuestByUid,
+  getQuestChain,
+  getQuestHistoryByQuestUid,
   initializeDatabase,
+  insertQuestChain,
   listActiveGuildEventSeeds,
   listActiveRumours,
   listGuildCharacters,
@@ -17,9 +22,12 @@ import {
   listPendingQuestCompletions,
   listRecentQuestHistory,
   resolveEffectiveAvatarPath,
+  updateQuestChainStatus,
+  updateQuestChainStory,
   type GuildCharacter,
   type GuildQuest,
   type PendingQuestCompletion,
+  type QuestChain,
   type QuestDifficulty,
 } from '@/lib/local-db';
 import { applyQuestCompletion } from '@/lib/quest-simulation';
@@ -54,6 +62,16 @@ export default function TavernScreen() {
   const [restStep, setRestStep]             = useState('');
   const [guildEvent, setGuildEvent]         = useState<{ narrative: string; charNames: string[] } | null>(null);
   const [questReturns, setQuestReturns]     = useState<Array<{ title: string; outcome: 'success' | 'failure'; partyNames: string[] }>>([]);
+  // Chain pivot — shown after a chain quest completes
+  const [chainPivot, setChainPivot]         = useState<{
+    chain: QuestChain;
+    pivotNarrative: string;
+    outcome: 'success' | 'failure';
+    isFinal: boolean;
+  } | null>(null);
+  const [chainAnswer, setChainAnswer]       = useState('');
+  const [chainAnswering, setChainAnswering] = useState(false);
+  const chainAnswerRef                      = useRef(chainAnswer);
 
   useEffect(() => {
     void load();
@@ -95,9 +113,36 @@ export default function TavernScreen() {
       const allPending = await listPendingQuestCompletions();
       const due = allPending.filter((p) => p.revealDay <= next);
       const returns: Array<{ title: string; outcome: 'success' | 'failure'; partyNames: string[] }> = [];
+      let pendingChainPivot: { chain: QuestChain; pivotNarrative: string; outcome: 'success' | 'failure'; isFinal: boolean } | null = null;
       for (const pending of due) {
         await applyQuestCompletion(pending);
         returns.push({ title: pending.questTitle, outcome: pending.outcome, partyNames: pending.partyNames });
+        // Check if this was a chain quest
+        if (!pendingChainPivot) {
+          const quest = await getGuildQuestByUid(pending.questUid).catch(() => null);
+          if (quest?.chainUid) {
+            const chain = await getQuestChain(quest.chainUid).catch(() => null);
+            if (chain && chain.status === 'active') {
+              const history = await getQuestHistoryByQuestUid(pending.questUid).catch(() => null);
+              const narrative = history?.summary ?? 'The quest was completed.';
+              const isFinal = chain.depth >= chain.maxDepth;
+              // Append this quest's result to story so far
+              const newStory = [
+                chain.storySoFar,
+                `Quest ${chain.depth} (${pending.outcome}): ${narrative.slice(0, 300)}`,
+              ].filter(Boolean).join('\n');
+              await updateQuestChainStory(chain.uid, newStory, chain.depth).catch(console.error);
+              if (isFinal) {
+                await updateQuestChainStatus(chain.uid, pending.outcome === 'success' ? 'completed' : 'failed').catch(console.error);
+              }
+              setRestStep('The story takes a turn...');
+              const pivot = await generateChainPivot({ ...chain, storySoFar: newStory }, narrative, pending.outcome, pending.partyNames, setRestStep).catch(() => null);
+              if (pivot) {
+                pendingChainPivot = { chain: { ...chain, storySoFar: newStory }, pivotNarrative: pivot, outcome: pending.outcome, isFinal };
+              }
+            }
+          }
+        }
       }
       const remaining = allPending.filter((p) => p.revealDay > next);
       setPendingCompletions(remaining);
@@ -120,6 +165,9 @@ export default function TavernScreen() {
       );
       setEffectiveAvatars(Object.fromEntries(avatarEntries));
 
+      // Show chain pivot modal if a chain quest completed today (deferred until after rest)
+      if (pendingChainPivot) setChainPivot(pendingChainPivot);
+
       // Post exactly 1 new quest per day, as long as the board isn't full.
       if (active.length < NOTICE_BOARD_SIZE) {
         const avgLevel = freshChars.length > 0
@@ -133,7 +181,21 @@ export default function TavernScreen() {
         const seedRumour = activeRumours.length > 0 && Math.random() < 0.5
           ? activeRumours[Math.floor(Math.random() * activeRumours.length)]
           : undefined;
-        const quest = await generateQuest(level, difficulty, setRestStep, seedRumour);
+        // 10% chance to start a quest chain (only if no chain quest is already on the board)
+        const boardHasChain = active.some((q) => q.chainUid !== null);
+        let newChain: QuestChain | undefined;
+        if (!boardHasChain && Math.random() < 0.10) {
+          setRestStep('A greater story begins to unfold...');
+          const firstBiome = active[0]?.biome ?? 'forest';
+          const { name, premise } = await generateChainPremise(firstBiome, setRestStep).catch(() => ({ name: '', premise: '' }));
+          if (name && premise) {
+            const uid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => { const r = (Math.random() * 16) | 0; return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16); });
+            newChain = { uid, name, premise, storySoFar: '', depth: 1, maxDepth: 2 + Math.floor(Math.random() * 2), status: 'active', createdAt: new Date().toISOString() };
+            await insertQuestChain(newChain).catch(console.error);
+          }
+        }
+        const quest = await generateQuest(level, difficulty, setRestStep, seedRumour,
+          newChain ? { chain: newChain, playerAnswer: '', outcome: 'success' } : undefined);
         active = [...active, quest];
       } else if (Math.random() < 0.10 && freshChars.length >= 2) {
         // Board is full — 10% chance of a guild event
@@ -164,6 +226,37 @@ export default function TavernScreen() {
       setRestStep('');
     }
   }, [resting]);
+
+  async function handleChainAnswer() {
+    if (!chainPivot) return;
+    if (!chainPivot.isFinal && !chainAnswer.trim()) return;
+    setChainAnswering(true);
+    try {
+      if (chainPivot.isFinal) {
+        setChainPivot(null);
+        setChainAnswer('');
+        return;
+      }
+      const { chain, outcome } = chainPivot;
+      const avgLevel = characters.length > 0
+        ? Math.round(characters.reduce((sum, c) => sum + c.level, 0) / characters.length) : 1;
+      const difficulty = rollQuestDifficulty();
+      const level = rollQuestLevel(avgLevel);
+      // Advance chain depth for the new quest
+      const nextDepth = chain.depth + 1;
+      const updatedChain: QuestChain = { ...chain, depth: nextDepth };
+      await updateQuestChainStory(chain.uid, chain.storySoFar, nextDepth).catch(console.error);
+      const chainCtx: ChainContext = { chain: updatedChain, playerAnswer: chainAnswer.trim(), outcome };
+      const quest = await generateQuest(level, difficulty, setRestStep, undefined, chainCtx);
+      setQuests((prev) => [...prev, quest]);
+      setChainPivot(null);
+      setChainAnswer('');
+    } catch (e) {
+      console.error('[Chain] Failed to generate next quest:', e);
+    } finally {
+      setChainAnswering(false);
+    }
+  }
 
   return (
     <View style={styles.root}>
@@ -307,9 +400,11 @@ export default function TavernScreen() {
           </ThemedText>
         ) : (
           quests.map((q) => (
-            <View key={q.uid} style={styles.questCard}>
+            <View key={q.uid} style={[styles.questCard, q.chainUid ? styles.questCardChain : null]}>
               <View style={styles.questCardTop}>
-                <ThemedText style={styles.questTitle}>{q.title}</ThemedText>
+                <ThemedText style={styles.questTitle}>
+                  {q.chainUid ? '◆ ' : ''}{q.title}
+                </ThemedText>
                 <View style={[styles.diffBadge, { backgroundColor: difficultyColor[q.difficulty] }]}>
                   <ThemedText style={styles.diffText}>{capitalize(q.difficulty)}</ThemedText>
                 </View>
@@ -425,6 +520,60 @@ export default function TavernScreen() {
               {questReturns.length > 1 ? `Next (${questReturns.length - 1} more)` : 'Dismiss'}
             </ThemedText>
           </Pressable>
+        </View>
+      </View>
+    </Modal>
+
+    {/* ── Chain Pivot Modal ── */}
+    <Modal visible={!!chainPivot} transparent animationType="fade">
+      <View style={styles.eventOverlay}>
+        <View style={styles.eventCard}>
+          {chainPivot && (
+            <>
+              <View style={styles.eventHeader}>
+                <ThemedText style={styles.eventHeaderIcon}>◆</ThemedText>
+                <View style={styles.eventHeaderText}>
+                  <ThemedText style={styles.chainSubtitle}>
+                    {chainPivot.chain.name} — Part {chainPivot.chain.depth} of {chainPivot.chain.maxDepth}
+                  </ThemedText>
+                  <ThemedText style={styles.eventHeaderTitle}>
+                    {chainPivot.isFinal
+                      ? (chainPivot.outcome === 'success' ? 'Chain Complete' : 'Chain Failed')
+                      : 'The Story Continues'}
+                  </ThemedText>
+                </View>
+              </View>
+              <ThemedText style={styles.eventNarrative}>{chainPivot.pivotNarrative}</ThemedText>
+              {!chainPivot.isFinal && (
+                <>
+                  <TextInput
+                    style={styles.chainInput}
+                    value={chainAnswer}
+                    onChangeText={setChainAnswer}
+                    placeholder="How does the guild respond?"
+                    placeholderTextColor="#9BA1A6"
+                    multiline
+                    editable={!chainAnswering}
+                  />
+                  <Pressable
+                    style={[styles.eventDismiss, (!chainAnswer.trim() || chainAnswering) && styles.eventDismissDisabled]}
+                    onPress={handleChainAnswer}
+                    disabled={!chainAnswer.trim() || chainAnswering}
+                  >
+                    {chainAnswering
+                      ? <ActivityIndicator size="small" color="#FFFFFF" />
+                      : <ThemedText style={styles.eventDismissText}>Generate Next Quest</ThemedText>
+                    }
+                  </Pressable>
+                </>
+              )}
+              {chainPivot.isFinal && (
+                <Pressable style={styles.eventDismiss} onPress={() => { setChainPivot(null); setChainAnswer(''); }}>
+                  <ThemedText style={styles.eventDismissText}>Close</ThemedText>
+                </Pressable>
+              )}
+            </>
+          )}
         </View>
       </View>
     </Modal>
@@ -627,6 +776,11 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     gap: 4,
   },
+  questCardChain: {
+    borderLeftWidth: 2,
+    borderLeftColor: '#7A4F1E',
+    paddingLeft: 8,
+  },
   questCardTop: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -795,10 +949,31 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
   },
+  eventDismissDisabled: {
+    opacity: 0.4,
+  },
   eventDismissText: {
     fontSize: 15,
     fontWeight: '600',
     color: '#2E5A1C',
+  },
+  chainSubtitle: {
+    fontSize: 11,
+    color: '#7A4F1E',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  chainInput: {
+    borderWidth: 1,
+    borderColor: '#D4B896',
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 13,
+    color: '#11181C',
+    minHeight: 72,
+    textAlignVertical: 'top',
+    marginBottom: 4,
   },
   onQuestRow: {
     flexDirection: 'row',

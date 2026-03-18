@@ -156,6 +156,7 @@ function runMigrations(): void {
   bump(33, migrateV33);
   bump(34, migrateV34);
   bump(35, migrateV35);
+  bump(36, migrateV36);
 
   ensureMetaDescSeeds();
   ensurePhysDescSeeds();
@@ -564,6 +565,23 @@ function migrateV34() {
       created_at         TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
+}
+
+function migrateV36() {
+  _exec(`
+    CREATE TABLE IF NOT EXISTS quest_chains (
+      uid          TEXT PRIMARY KEY NOT NULL,
+      name         TEXT NOT NULL,
+      premise      TEXT NOT NULL,
+      story_so_far TEXT NOT NULL DEFAULT '',
+      depth        INTEGER NOT NULL DEFAULT 1,
+      max_depth    INTEGER NOT NULL DEFAULT 3,
+      status       TEXT NOT NULL DEFAULT 'active',
+      created_at   TEXT NOT NULL
+    );
+  `);
+  try { _exec(`ALTER TABLE quests ADD COLUMN chain_uid TEXT;`); } catch { /* already exists */ }
+  try { _exec(`ALTER TABLE quests ADD COLUMN chain_depth INTEGER;`); } catch { /* already exists */ }
 }
 
 function migrateV35() {
