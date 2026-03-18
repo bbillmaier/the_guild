@@ -155,6 +155,7 @@ function runMigrations(): void {
   bump(32, migrateV32);
   bump(33, migrateV33);
   bump(34, migrateV34);
+  bump(35, migrateV35);
 
   ensureMetaDescSeeds();
   ensurePhysDescSeeds();
@@ -561,6 +562,20 @@ function migrateV34() {
       item_data          TEXT NOT NULL DEFAULT '[]',
       relationship_delta INTEGER NOT NULL DEFAULT 0,
       created_at         TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+}
+
+function migrateV35() {
+  _exec(`
+    CREATE TABLE IF NOT EXISTS rumours (
+      uid        TEXT PRIMARY KEY NOT NULL,
+      text       TEXT NOT NULL,
+      keywords   TEXT NOT NULL DEFAULT '[]',
+      game_day   INTEGER NOT NULL DEFAULT 1,
+      known_by   TEXT NOT NULL DEFAULT '[]',
+      used       INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
 }

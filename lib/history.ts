@@ -11,6 +11,7 @@ import {
   insertQuestHistory,
   listChatHistoryForCharacter,
   listQuestHistoryForCharacter,
+  listRumoursKnownBy,
   type ChatHistory,
   type GuildCharacter,
   type GuildQuest,
@@ -294,16 +295,36 @@ function relativeDay(entryDay: number, currentDay: number): string {
  * via keyword matching in buildTemporalContext / findRelevantMemories.
  */
 export async function buildHistoryContext(characterUid: string, currentDay?: number): Promise<string> {
-  const chatHistory = await listChatHistoryForCharacter(characterUid, 3);
-  if (chatHistory.length === 0) return '';
+  const [chatHistory, rumours] = await Promise.all([
+    listChatHistoryForCharacter(characterUid, 3),
+    listRumoursKnownBy(characterUid),
+  ]);
 
-  const lines: string[] = ['Past conversations with the Guild Master (these are memories, not the current conversation):'];
-  for (const ch of chatHistory) {
-    if (!ch.summary) continue;
-    const timeLabel = currentDay !== undefined ? relativeDay(ch.gameDay, currentDay) : `Day ${ch.gameDay}`;
-    lines.push(`- [${timeLabel}] ${ch.summary}`);
+  const sections: string[] = [];
+
+  if (chatHistory.length > 0) {
+    const lines: string[] = ['Past conversations with the Guild Master (these are memories, not the current conversation):'];
+    for (const ch of chatHistory) {
+      if (!ch.summary) continue;
+      const timeLabel = currentDay !== undefined ? relativeDay(ch.gameDay, currentDay) : `Day ${ch.gameDay}`;
+      lines.push(`- [${timeLabel}] ${ch.summary}`);
+    }
+    sections.push(lines.join('\n'));
   }
-  return lines.join('\n');
+
+  const activeRumours = rumours.filter((r) => !r.used).slice(0, 3);
+  if (activeRumours.length > 0) {
+    const lines: string[] = [
+      'Rumours this character has heard. IMPORTANT: this is the complete extent of their knowledge — do not add names, details, or information beyond exactly what is written here:',
+    ];
+    for (const r of activeRumours) {
+      const timeLabel = currentDay !== undefined ? relativeDay(r.gameDay, currentDay) : `Day ${r.gameDay}`;
+      lines.push(`- [${timeLabel}] "${r.text}"`);
+    }
+    sections.push(lines.join('\n'));
+  }
+
+  return sections.join('\n\n');
 }
 
 // ─── Temporal context expansion ───────────────────────────────────────────────

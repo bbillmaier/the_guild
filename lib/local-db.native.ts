@@ -168,6 +168,16 @@ export type PendingQuestCompletion = {
   createdAt: string;
 };
 
+export type Rumour = {
+  uid: string;
+  text: string;
+  keywords: string[];
+  gameDay: number;
+  knownBy: string[];  // character UIDs who have heard this rumour
+  used: boolean;      // true once a quest has been generated from it
+  createdAt: string;
+};
+
 export type MundaneItemType = {
   id: number;
   name: string;
@@ -228,7 +238,7 @@ export type CharacterOpinion = {
 };
 
 const databasePromise = SQLite.openDatabaseAsync('guild.db');
-const latestMigrationVersion = 34;
+const latestMigrationVersion = 35;
 
 async function getDatabase() {
   return databasePromise;
@@ -451,6 +461,12 @@ export async function initializeDatabase() {
   if (currentVersion < 34) {
     await runMigrationV34(database);
     currentVersion = 34;
+    await database.runAsync('UPDATE schema_migrations SET version = ? WHERE id = 1;', currentVersion);
+  }
+
+  if (currentVersion < 35) {
+    await runMigrationV35(database);
+    currentVersion = 35;
     await database.runAsync('UPDATE schema_migrations SET version = ? WHERE id = 1;', currentVersion);
   }
 
@@ -841,6 +857,20 @@ async function runMigrationV34(database: SQLite.SQLiteDatabase) {
       item_data          TEXT NOT NULL DEFAULT '[]',
       relationship_delta INTEGER NOT NULL DEFAULT 0,
       created_at         TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+}
+
+async function runMigrationV35(database: SQLite.SQLiteDatabase) {
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS rumours (
+      uid        TEXT PRIMARY KEY NOT NULL,
+      text       TEXT NOT NULL,
+      keywords   TEXT NOT NULL DEFAULT '[]',
+      game_day   INTEGER NOT NULL DEFAULT 1,
+      known_by   TEXT NOT NULL DEFAULT '[]',
+      used       INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
 }
@@ -2469,4 +2499,36 @@ export async function updateGuildEventSeedUseCommonQuest(uid: string, useCommonQ
 export async function deleteGuildEventSeed(uid: string): Promise<void> {
   const database = await getDatabase();
   await database.runAsync(`DELETE FROM guild_event_seeds WHERE uid = ?;`, uid);
+}
+
+// ─── Rumours ──────────────────────────────────────────────────────────────────
+
+type RumourRow = { uid: string; text: string; keywords: string; game_day: number; known_by: string; used: number; created_at: string };
+function mapRumourRow(r: RumourRow): Rumour {
+  return { uid: r.uid, text: r.text, keywords: JSON.parse(r.keywords) as string[], gameDay: r.game_day, knownBy: JSON.parse(r.known_by) as string[], used: r.used === 1, createdAt: r.created_at };
+}
+
+export async function insertRumour(row: Rumour): Promise<void> {
+  const database = await getDatabase();
+  await database.runAsync(
+    `INSERT OR REPLACE INTO rumours (uid, text, keywords, game_day, known_by, used, created_at) VALUES (?, ?, ?, ?, ?, ?, ?);`,
+    row.uid, row.text, JSON.stringify(row.keywords), row.gameDay, JSON.stringify(row.knownBy), row.used ? 1 : 0, row.createdAt,
+  );
+}
+
+export async function listActiveRumours(): Promise<Rumour[]> {
+  const database = await getDatabase();
+  const rows = await database.getAllAsync<RumourRow>(`SELECT * FROM rumours WHERE used = 0 ORDER BY game_day DESC;`);
+  return rows.map(mapRumourRow);
+}
+
+export async function listRumoursKnownBy(characterUid: string): Promise<Rumour[]> {
+  const database = await getDatabase();
+  const rows = await database.getAllAsync<RumourRow>(`SELECT * FROM rumours ORDER BY game_day DESC;`);
+  return rows.map(mapRumourRow).filter((r) => r.knownBy.includes(characterUid));
+}
+
+export async function markRumourUsed(uid: string): Promise<void> {
+  const database = await getDatabase();
+  await database.runAsync(`UPDATE rumours SET used = 1 WHERE uid = ?;`, uid);
 }

@@ -18,10 +18,12 @@ import {
   initializeDatabase,
   insertGuildQuest,
   insertQuestRoom,
+  markRumourUsed,
   type CharacterGender,
   type GuildQuest,
   type QuestDifficulty,
   type QuestRoom,
+  type Rumour,
   type RoomType,
 } from '@/lib/local-db';
 
@@ -232,6 +234,7 @@ export async function generateQuest(
   level: number,
   difficulty: QuestDifficulty,
   onStep?: (step: string) => void,
+  seedRumour?: Rumour,
 ): Promise<GuildQuest> {
   const step = (msg: string) => onStep?.(msg);
 
@@ -245,9 +248,13 @@ export async function generateQuest(
   const roomTypes: RoomType[] = shuffle(['combat', 'challenge', ...extras] as RoomType[]);
   roomTypes.push('boss');
 
+  const rumourCtx = seedRumour
+    ? `\nA rumour has been circulating in the area: "${seedRumour.text}"\nThe quest should be related to or inspired by this rumour.`
+    : '';
+
   step('Generating quest title...');
   const titleRaw = await callKoboldApi(
-    `Write a 3 to 4 word fantasy quest title set in a ${biome.name.toLowerCase()}. Examples: "Fangs of the Fen", "Ruins of Ashveil", "Depths of Cindermaw". Output only the title — no quotes, no punctuation at the end, no explanation.`,
+    `Write a 3 to 4 word fantasy quest title set in a ${biome.name.toLowerCase()}.${rumourCtx} Examples: "Fangs of the Fen", "Ruins of Ashveil", "Depths of Cindermaw". Output only the title — no quotes, no punctuation at the end, no explanation.`,
     10,
     'Quest: writing title...'
   );
@@ -255,7 +262,7 @@ export async function generateQuest(
 
   step('Generating quest summary...');
   const summaryRaw = await callKoboldApi(
-    `Write 2-3 sentences describing the goal and stakes of a quest called "${title}" set in a ${biome.name.toLowerCase()}. Mention the threat, the location, and what is at stake. Past tense, evocative. No game mechanics, no numbers. Output only the description.`,
+    `Write 2-3 sentences describing the goal and stakes of a quest called "${title}" set in a ${biome.name.toLowerCase()}.${rumourCtx} Mention the threat, the location, and what is at stake. Past tense, evocative. No game mechanics, no numbers. Output only the description.`,
     150,
     'Quest: writing summary...'
   );
@@ -362,6 +369,10 @@ export async function generateQuest(
   await insertGuildQuest(quest);
   for (const room of rooms) {
     await insertQuestRoom(room);
+  }
+
+  if (seedRumour) {
+    await markRumourUsed(seedRumour.uid).catch(console.error);
   }
 
   return quest;

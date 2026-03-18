@@ -11,9 +11,11 @@ import {
   getGameDay,
   initializeDatabase,
   listActiveGuildEventSeeds,
+  listActiveRumours,
   listGuildCharacters,
   listGuildQuests,
   listPendingQuestCompletions,
+  listRecentQuestHistory,
   resolveEffectiveAvatarPath,
   type GuildCharacter,
   type GuildQuest,
@@ -23,6 +25,7 @@ import {
 import { applyQuestCompletion } from '@/lib/quest-simulation';
 import { filterByRoom, getGroupMembers, getRoomAssignments, refreshRoomAssignments, type RoomKey, type RoomState } from '@/lib/room-assignments';
 import { generateGuildEvent, pickEventChars } from '@/lib/generate-guild-event';
+import { generateRumour } from '@/lib/generate-rumour';
 import { saveGuildEventHistory } from '@/lib/history';
 import { useQuestRunner } from '@/contexts/quest-runner';
 
@@ -125,7 +128,12 @@ export default function TavernScreen() {
         setRestStep('Posting new contract...');
         const difficulty = rollQuestDifficulty();
         const level = rollQuestLevel(avgLevel);
-        const quest = await generateQuest(level, difficulty, setRestStep);
+        // 50% chance to seed the quest from an active rumour
+        const activeRumours = await listActiveRumours();
+        const seedRumour = activeRumours.length > 0 && Math.random() < 0.5
+          ? activeRumours[Math.floor(Math.random() * activeRumours.length)]
+          : undefined;
+        const quest = await generateQuest(level, difficulty, setRestStep, seedRumour);
         active = [...active, quest];
       } else if (Math.random() < 0.10 && freshChars.length >= 2) {
         // Board is full — 10% chance of a guild event
@@ -145,6 +153,12 @@ export default function TavernScreen() {
       }
 
       setQuests(active);
+
+      // ~35% chance each day to generate a new rumour from recent game events
+      if (Math.random() < 0.35 && freshChars.length > 0) {
+        const recentQuests = await listRecentQuestHistory(5).catch(() => []);
+        await generateRumour(freshChars, recentQuests, next, setRestStep).catch(console.error);
+      }
     } finally {
       setResting(false);
       setRestStep('');

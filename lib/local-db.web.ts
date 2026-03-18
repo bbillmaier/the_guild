@@ -247,6 +247,16 @@ export type PendingQuestCompletion = {
   createdAt: string;
 };
 
+export type Rumour = {
+  uid: string;
+  text: string;
+  keywords: string[];
+  gameDay: number;
+  knownBy: string[];
+  used: boolean;
+  createdAt: string;
+};
+
 export type ChatHistory = {
   uid: string;
   characterUid: string;
@@ -1441,6 +1451,43 @@ export async function updateGuildEventSeedUseCommonQuest(uid: string, useCommonQ
 export async function deleteGuildEventSeed(uid: string): Promise<void> {
   if (isElectron) { await eRun(`DELETE FROM guild_event_seeds WHERE uid = ?;`, [uid]); return; }
   writeGuildEventSeeds(readGuildEventSeeds().filter((s) => s.uid !== uid));
+}
+
+// ─── Rumours ──────────────────────────────────────────────────────────────────
+
+type RumourRow = { uid: string; text: string; keywords: string; game_day: number; known_by: string; used: number; created_at: string };
+function mapRumourRow(r: RumourRow): Rumour {
+  return { uid: r.uid, text: r.text, keywords: parseJsonArray(r.keywords), gameDay: r.game_day, knownBy: parseJsonArray(r.known_by), used: r.used === 1, createdAt: r.created_at };
+}
+
+const rumourStorageKey = 'rumours';
+function readRumours(): Rumour[] { return lsJson<Rumour[]>(rumourStorageKey, []); }
+function writeRumours(rows: Rumour[]) { lsSet(rumourStorageKey, JSON.stringify(rows)); }
+
+export async function insertRumour(row: Rumour): Promise<void> {
+  if (isElectron) {
+    await eRun(
+      `INSERT OR REPLACE INTO rumours (uid, text, keywords, game_day, known_by, used, created_at) VALUES (?, ?, ?, ?, ?, ?, ?);`,
+      [row.uid, row.text, JSON.stringify(row.keywords), row.gameDay, JSON.stringify(row.knownBy), row.used ? 1 : 0, row.createdAt]
+    );
+    return;
+  }
+  const rows = readRumours().filter((r) => r.uid !== row.uid); rows.unshift(row); writeRumours(rows);
+}
+
+export async function listActiveRumours(): Promise<Rumour[]> {
+  if (isElectron) { return (await eAll<RumourRow>(`SELECT * FROM rumours WHERE used = 0 ORDER BY game_day DESC;`)).map(mapRumourRow); }
+  return readRumours().filter((r) => !r.used).sort((a, b) => b.gameDay - a.gameDay);
+}
+
+export async function listRumoursKnownBy(characterUid: string): Promise<Rumour[]> {
+  if (isElectron) { return (await eAll<RumourRow>(`SELECT * FROM rumours ORDER BY game_day DESC;`)).map(mapRumourRow).filter((r) => r.knownBy.includes(characterUid)); }
+  return readRumours().filter((r) => r.knownBy.includes(characterUid)).sort((a, b) => b.gameDay - a.gameDay);
+}
+
+export async function markRumourUsed(uid: string): Promise<void> {
+  if (isElectron) { await eRun(`UPDATE rumours SET used = 1 WHERE uid = ?;`, [uid]); return; }
+  writeRumours(readRumours().map((r) => r.uid === uid ? { ...r, used: true } : r));
 }
 
 export async function initCharacterMundaneItems(characterUid: string, className: string): Promise<void> {
