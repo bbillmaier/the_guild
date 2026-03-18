@@ -315,7 +315,7 @@ export default function TavernScreen() {
                   <CharacterAvatar name={c.characterName} avatarPath={effectiveAvatars[c.uid] ?? c.avatarPath} size={44} />
                   <ThemedText style={styles.onQuestName} numberOfLines={1}>{c.characterName}</ThemedText>
                   <ThemedText style={styles.onQuestLabel}>
-                    {pending ? `Returns Day ${pending.revealDay}` : 'On Quest'}
+                    {pending ? `Returns ${faerunDateShort(pending.revealDay)}` : 'On Quest'}
                   </ThemedText>
                 </View>
               );
