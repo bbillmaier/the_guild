@@ -53,26 +53,25 @@ export async function generateChainPivot(
     : '';
 
   const prompt = [
-    `You are writing a narrative moment at the end of a quest in an ongoing story called "${chain.name}".`,
+    `You are writing a decision point at the end of a quest in an ongoing story called "${chain.name}".`,
     `Overarching premise: ${chain.premise}`,
     chain.storySoFar ? `Story so far:\n${chain.storySoFar}` : '',
     `What just happened: ${questNarrative.slice(0, 600)}`,
     failureNote,
     `Party members: ${partyNames.join(', ')}`,
     isFinal
-      ? `This is the final quest in the chain. Write 2-3 sentences describing the conclusion — what the party discovered, what was resolved, and what scars or questions remain. Then ask the Guild Master one reflective question about how this ended.`
+      ? `This is the final quest in the chain. Write 2-3 sentences describing the conclusion — what the party discovered, what was resolved, and what scars or questions remain. Then ask the Guild Master one reflective question about how this ended. Output only the conclusion and question.`
       : outcome === 'failure'
-        ? `Write 2-3 sentences describing the consequences of their failure — what slipped through, what new threat emerges, or what the party learned at a cost. Then ask the Guild Master one question about how the party intends to press on.`
-        : `Write 2-3 sentences describing what the party discovers at the end of this quest — a new clue, a revelation, or a complication that deepens the mystery. Then ask the Guild Master one question about how they will respond.`,
-    `Keep it grounded and personal. Output only the narrative and question, nothing else.`,
+        ? `Write 1-2 sentences describing the consequences of their failure — what slipped through or what new threat emerges. Then present exactly 3 numbered choices for how the guild can respond to this setback. Each choice should be a concrete course of action (one sentence each). End with: "Or describe your own course of action." Output only the consequence and choices.`
+        : `Write 1-2 sentences describing what the party discovers or learns at the end of this quest. Then present exactly 3 numbered choices for how the guild can follow up on this lead. Each choice should be a concrete course of action (one sentence each). End with: "Or describe your own course of action." Output only the discovery and choices.`,
   ].filter(Boolean).join('\n\n');
 
   try {
-    const raw = await callKoboldApi(prompt, 300, 'The story takes a turn...');
+    const raw = await callKoboldApi(prompt, 350, 'The story takes a turn...');
     return raw.trim();
   } catch {
     return outcome === 'failure'
-      ? 'The party retreated wounded, but the threat endures. What will you do next?'
-      : 'The quest is complete, but questions remain. What will the guild do next?';
+      ? 'The party retreated wounded, but the threat endures.\n\n1. Push back immediately with a fresh assault.\n2. Regroup and gather more information first.\n3. Seek outside help before pressing on.\n\nOr describe your own course of action.'
+      : 'The quest is complete, but questions remain.\n\n1. Follow the trail before it goes cold.\n2. Investigate the lead from a different angle.\n3. Prepare carefully before the next move.\n\nOr describe your own course of action.';
   }
 }

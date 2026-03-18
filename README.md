@@ -9,7 +9,10 @@ A fantasy guild management RPG where you run an adventurer's guild. Recruit char
 - **Quest Log** — Review completed quests with a full LLM-written narrative and a raw combat log toggle. Pending quests show their expected return day.
 - **Characters** — Each adventurer has D&D-style stats (27-point buy), a race, class, personality, and a relationship score with every other guild member that shifts based on quest outcomes and roleplay moments.
 - **Armory & Shop** — Gear earned from quests lands in the armory. Buy supplies from the market.
+- **Quest Chains** — One in ten quests begins a named multi-part story arc (2–3 quests deep). After each quest in the chain resolves, the LLM generates a pivot scene — a discovery or consequence — and presents the player with three concrete numbered choices for how the guild responds. The player's free-text answer seeds the next quest's title, summary, and context prompts. Failure mid-chain continues the story with darker framing rather than ending it; only failing the final quest closes a chain as a loss.
+- **Rumour System** — The LLM generates short rumours from recent quest history and guild events each day. Each rumour is assigned to 1–3 random characters, with the text of the rumour injected into their chat context verbatim. The prompt explicitly tells the model that the rumour is the *complete extent* of what that character knows — preventing hallucination of names, details, or follow-up information the character could not plausibly have. Rumours also seed quest generation, influencing the title, location, and stakes of new contracts.
 - **Guild Events** — Random events fire between days, generating stories involving your characters.
+- **World Building** — Zones define named regions of the world, each anchored to a natural biome (Forest, Tundra, Desert, etc.), with a full description used to colour quest and narrative generation. A separate NPC system tracks named world characters with roles, titles, and personality descriptions, ready to be tied to cities and factions.
 - **LLM Integration** — Connects to any [KoboldAI](https://github.com/KoboldAI/KoboldAI-Client)-compatible server for quest narratives, character descriptions, and dialogue. The server can be running locally or on a rented GPU in the cloud.
 
 ## How character memory works
@@ -53,6 +56,12 @@ Every character pair has a numeric relationship score stored in the `relationshi
 Before each quest room, the sum of all pairwise relationship scores is converted into an **advantage pool** (positive sum → re-rolls on failed checks) and a **jinx pool** (negative sum → forced re-rolls on successes). This creates a mechanical feedback loop: parties that get along fight better; parties with friction are less reliable.
 
 Character opinions — short LLM-written summaries of how one character views another — are stored as a third memory type in the same keyword pool and surface in conversation when the relevant character is mentioned.
+
+### Quest chain narrative state
+
+Quest chains maintain a `storySoFar` document that accumulates across quests. After each chain quest resolves, a 300-character excerpt of the quest narrative is appended to this document with the outcome tagged (`Quest 1 (success): ...`). The accumulated document is injected into every subsequent LLM prompt in the chain — the title generation, summary generation, and the pivot scene — so each call has the full prior context of the arc without relying on conversation history or session state. This means the story remains coherent even if days pass between quests.
+
+The pivot scene prompt instructs the LLM to generate exactly three numbered, concrete follow-up choices (not open-ended questions), followed by an `"Or describe your own course of action."` fallback. The player's typed response — whether a number or free text — is stored verbatim as `playerAnswer` and injected directly into the next quest's generation context, so the quest the guild actually goes on reflects the choice that was made.
 
 ### Quest narrative pipeline
 

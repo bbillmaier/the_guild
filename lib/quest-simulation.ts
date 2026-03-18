@@ -186,7 +186,7 @@ async function generateRoomNarrative(
     `You are narrating a fantasy quest called "${quest.title}" set in ${quest.biome}.`,
     `Party: ${buildPartyRoster(party)}. Use these pronouns consistently.`,
     buildHistoryBlock(previousNarratives),
-    `Narrate the following event in past tense, immersive prose. Describe what happened dramatically — no damage numbers, hit points, dice rolls, or any game mechanics:\n${eventSummary}`,
+    `Narrate the following event in 2-3 sentences of past tense, immersive prose. Focus on what happened and its consequence — keep dialogue to a single line at most, no damage numbers, no game mechanics:\n${eventSummary}`,
   ].filter(Boolean).join('\n');
 
   try {
@@ -230,7 +230,7 @@ async function generateRoleplayScene(
     relationshipLine,
     buildHistoryBlock(previousNarratives),
     `The adventurers take a moment. Scenario: ${scenarioText}`,
-    `Write 2-3 brief exchanges of dialogue with minimal action beats. Past tense. Output only the scene — no title, no summary, no commentary.`,
+    `Write 1-2 brief exchanges of dialogue (3-4 lines total). Keep it short. Past tense. Output only the scene — no title, no summary, no commentary.`,
   ].filter(Boolean).join('\n');
 
   try {
@@ -582,8 +582,8 @@ async function finalizeSuccess(
     fallen.length > 0 ? `Too wounded to continue: ${fallen.join(', ')}.` : '',
     `Survivors: ${survivors || 'none'}.`,
     '',
-    'Weave all of these events into one cohesive fantasy story. Flowing prose, past tense, immersive. Include every event in order — combat, challenges, and all dialogue scenes. Do not skip or condense any of them.',
-    `The story must have a definitive ending: the party completes the quest objective, defeats the final enemy, and leaves the ${quest.biome}. Close with a final sentence showing the party departing or reflecting on what was accomplished — not a teaser for future adventures. Output only the story.`,
+    'Weave these events into one cohesive fantasy story. Flowing prose, past tense, immersive. Condense any dialogue or character-interaction moments to a single sentence each — do not reproduce them verbatim. Spend your word budget on the action, rising tension, and most importantly the ending.',
+    `The story MUST reach a definitive conclusion: the party defeats the final enemy, completes the quest objective, and departs the ${quest.biome}. The climax and conclusion are the most important part — do not run out of space before reaching them. Close with a sentence showing the party leaving or reflecting on what was accomplished. Output only the story.`,
   ].filter(Boolean);
 
   let story = narratives.join('\n\n');
@@ -657,8 +657,8 @@ async function finalizeFailure(
     '',
     `The party (${partyNames}) was ultimately defeated and forced to retreat.`,
     '',
-    'Weave all of these events into one cohesive fantasy story ending in defeat, 4-6 paragraphs. Flowing prose, past tense, immersive. Include every event in order — combat, challenges, all dialogue scenes, and the party\'s final moments. Do not skip or condense any of them.',
-    `The story must have a definitive ending: the party is overwhelmed, forced to retreat, and leaves the ${quest.biome} having failed their objective. Close with a final sentence showing them withdrawing or reflecting on the defeat — not a teaser for future adventures. Output only the story.`,
+    'Weave these events into one cohesive fantasy story ending in defeat, 4-6 paragraphs. Flowing prose, past tense, immersive. Condense any dialogue or character-interaction moments to a single sentence each — do not reproduce them verbatim. Spend your word budget on the combat, the escalating danger, and the final collapse.',
+    `The story MUST reach a definitive ending: the party is overwhelmed, forced to retreat, and leaves the ${quest.biome} having failed their objective. The defeat and retreat are the most important part — do not run out of space before reaching them. Close with a sentence showing them withdrawing or reflecting on the defeat. Output only the story.`,
   ].filter(Boolean);
 
   let story = allNarratives.join('\n\n');

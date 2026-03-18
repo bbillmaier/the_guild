@@ -16,6 +16,7 @@ import { PHYS_DESC_SEED } from '../lib/phys-desc-seed';
 import { ROLEPLAY_SEEDS } from '../lib/roleplay-seeds';
 import { GROUP_GREETING_SEEDS } from '../lib/group-greeting-seeds';
 import { GUILD_EVENT_SEEDS } from '../lib/guild-event-seeds';
+import { ZONE_SEEDS } from '../lib/zone-seeds';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -157,6 +158,10 @@ function runMigrations(): void {
   bump(34, migrateV34);
   bump(35, migrateV35);
   bump(36, migrateV36);
+  bump(37, migrateV37);
+  bump(38, migrateV38);
+  bump(39, migrateV39);
+  bump(40, migrateV40);
 
   ensureMetaDescSeeds();
   ensurePhysDescSeeds();
@@ -563,6 +568,53 @@ function migrateV34() {
       item_data          TEXT NOT NULL DEFAULT '[]',
       relationship_delta INTEGER NOT NULL DEFAULT 0,
       created_at         TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+}
+
+function migrateV40() {
+  _exec(`
+    CREATE TABLE IF NOT EXISTS npcs (
+      uid                     TEXT PRIMARY KEY NOT NULL,
+      name                    TEXT NOT NULL,
+      role                    TEXT NOT NULL,
+      title                   TEXT,
+      physical_description    TEXT NOT NULL DEFAULT '',
+      personality_description TEXT NOT NULL DEFAULT '',
+      created_at              TEXT NOT NULL
+    );
+  `);
+}
+
+function migrateV39() {
+  const now = new Date().toISOString();
+  for (const z of ZONE_SEEDS) {
+    _run(
+      `INSERT INTO zones (uid, name, biome, description, created_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(uid) DO UPDATE SET name = excluded.name, biome = excluded.biome, description = excluded.description;`,
+      [z.uid, z.name, z.biome, z.description, now],
+    );
+  }
+}
+
+function migrateV38() {
+  const now = new Date().toISOString();
+  for (const z of ZONE_SEEDS) {
+    _run(
+      `INSERT OR IGNORE INTO zones (uid, name, biome, description, created_at) VALUES (?, ?, ?, ?, ?);`,
+      [z.uid, z.name, z.biome, z.description, now],
+    );
+  }
+}
+
+function migrateV37() {
+  _exec(`
+    CREATE TABLE IF NOT EXISTS zones (
+      uid         TEXT PRIMARY KEY NOT NULL,
+      name        TEXT NOT NULL,
+      biome       TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      created_at  TEXT NOT NULL
     );
   `);
 }

@@ -8,10 +8,13 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import {
   assignItemToCharacter,
+  deleteGuildItem,
   getGameDay,
+  getResource,
   initializeDatabase,
   listGuildCharacters,
   listGuildItems,
+  setResource,
   unassignItem,
   type GuildCharacter,
   type GuildItem,
@@ -23,16 +26,19 @@ export default function ArmoryScreen() {
   const [characters, setCharacters]   = useState<GuildCharacter[]>([]);
   const [assignments, setAssignments] = useState<Record<string, RoomKey>>({});
   const [error, setError]             = useState<string | null>(null);
-  const [equipTarget, setEquipTarget] = useState<GuildItem | null>(null);
-  const [working, setWorking]         = useState(false);
+  const [equipTarget, setEquipTarget]   = useState<GuildItem | null>(null);
+  const [sellTarget, setSellTarget]     = useState<GuildItem | null>(null);
+  const [gold, setGold]                 = useState(0);
+  const [working, setWorking]           = useState(false);
 
   useEffect(() => { void load(); }, []);
 
   async function load() {
     try {
       await initializeDatabase();
-      const [all, allChars, day] = await Promise.all([listGuildItems(), listGuildCharacters(), getGameDay()]);
+      const [all, allChars, day, currentGold] = await Promise.all([listGuildItems(), listGuildCharacters(), getGameDay(), getResource('gold')]);
       setItems(all);
+      setGold(currentGold);
       const { assignments: roomMap } = await getRoomAssignments(day, allChars);
       setAssignments(roomMap);
       setCharacters(allChars);
@@ -71,6 +77,24 @@ export default function ArmoryScreen() {
     }
   }
 
+  async function handleSell(item: GuildItem) {
+    if (working) return;
+    setWorking(true);
+    setError(null);
+    setSellTarget(null);
+    try {
+      const salePrice = item.bonus * 10;
+      const current = await getResource('gold');
+      await setResource('gold', current + salePrice);
+      await deleteGuildItem(item.uid);
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not sell item.');
+    } finally {
+      setWorking(false);
+    }
+  }
+
   const unassigned = items.filter((i) => i.characterUid === null);
   const equipped   = items.filter((i) => i.characterUid !== null);
   const here       = filterByRoom(characters, assignments, 'armory');
@@ -80,6 +104,13 @@ export default function ArmoryScreen() {
       <ThemedText style={styles.flavor}>
         Racks of steel and leather fill the room. Trophies from forgotten campaigns gather dust in the corners.
       </ThemedText>
+
+      <View style={styles.goldRow}>
+        <ThemedText style={styles.goldLabel}>Treasury</ThemedText>
+        <View style={styles.goldChip}>
+          <ThemedText style={styles.goldText}>{gold} gp</ThemedText>
+        </View>
+      </View>
 
       {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
 
@@ -115,6 +146,7 @@ export default function ArmoryScreen() {
               item={item}
               characters={characters}
               onEquipPress={() => setEquipTarget(item)}
+              onSellPress={() => item.bonus >= 3 ? setSellTarget(item) : void handleSell(item)}
             />
           ))
         )}
@@ -134,6 +166,36 @@ export default function ArmoryScreen() {
           ))}
         </View>
       ) : null}
+
+      {/* ── Sell confirmation sheet ── */}
+      <Modal
+        visible={!!sellTarget}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSellTarget(null)}
+      >
+        <Pressable style={styles.pickerBackdrop} onPress={() => setSellTarget(null)}>
+          <Pressable style={styles.pickerSheet} onPress={(e) => e.stopPropagation()}>
+            <ThemedText type="defaultSemiBold" style={styles.pickerTitle}>
+              Sell "{sellTarget?.name}"?
+            </ThemedText>
+            <ThemedText style={styles.sellPrice}>
+              +{(sellTarget?.bonus ?? 0) * 10} gold
+            </ThemedText>
+            <ThemedText style={styles.pickerSub}>
+              This cannot be undone.
+            </ThemedText>
+            <View style={styles.sellActions}>
+              <Pressable style={styles.sellConfirmBtn} onPress={() => sellTarget && void handleSell(sellTarget)} disabled={working}>
+                <ThemedText style={styles.sellConfirmText}>Sell</ThemedText>
+              </Pressable>
+              <Pressable style={styles.sellCancelBtn} onPress={() => setSellTarget(null)}>
+                <ThemedText style={styles.pickerCancelText}>Cancel</ThemedText>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* ── Character picker sheet ── */}
       <Modal
@@ -199,11 +261,12 @@ type ItemCardProps = {
   item: GuildItem;
   characters: GuildCharacter[];
   onEquipPress?: () => void;
+  onSellPress?: () => void;
   onUnequip?: () => void;
   disabled?: boolean;
 };
 
-function ItemCard({ item, characters, onEquipPress, onUnequip, disabled }: ItemCardProps) {
+function ItemCard({ item, characters, onEquipPress, onSellPress, onUnequip, disabled }: ItemCardProps) {
   const color   = rarityColor(item.bonus);
   const rarity  = rarityLabel(item.bonus);
   const owner   = item.characterUid ? characters.find((c) => c.uid === item.characterUid) : null;
@@ -238,6 +301,11 @@ function ItemCard({ item, characters, onEquipPress, onUnequip, disabled }: ItemC
         {onEquipPress && (
           <Pressable style={styles.actionBtn} onPress={onEquipPress} disabled={disabled}>
             <ThemedText style={styles.actionBtnText}>Equip</ThemedText>
+          </Pressable>
+        )}
+        {onSellPress && (
+          <Pressable style={[styles.actionBtn, styles.sellBtn]} onPress={onSellPress} disabled={disabled}>
+            <ThemedText style={styles.actionBtnText}>Sell</ThemedText>
           </Pressable>
         )}
         {onUnequip && (
@@ -308,7 +376,19 @@ const styles = StyleSheet.create({
   ownerName:        { fontSize: 12, color: '#687076' },
   actionBtn:        { backgroundColor: '#4A3728', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 6 },
   unequipBtn:       { backgroundColor: '#7A4A2A' },
+  sellBtn:          { backgroundColor: '#6B5500' },
   actionBtnText:    { color: '#FFFFFF', fontSize: 12, fontWeight: '600' },
+
+  goldRow:          { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  goldLabel:        { fontSize: 13, color: '#9BA1A6' },
+  goldChip:         { backgroundColor: '#4A3700', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 4 },
+  goldText:         { color: '#F0C040', fontSize: 13, fontWeight: '700' },
+
+  sellPrice:        { fontSize: 22, fontWeight: '700', color: '#C09820', textAlign: 'center', paddingVertical: 8 },
+  sellActions:      { flexDirection: 'row', gap: 10, marginTop: 4 },
+  sellConfirmBtn:   { flex: 1, backgroundColor: '#6B5500', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  sellConfirmText:  { color: '#F0C040', fontSize: 15, fontWeight: '700' },
+  sellCancelBtn:    { flex: 1, borderWidth: 1, borderColor: '#E0E4E7', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
 
   // Character picker sheet
   pickerBackdrop:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },

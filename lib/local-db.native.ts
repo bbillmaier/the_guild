@@ -3,6 +3,7 @@ import { STARTER_MUNDANE_ITEMS } from '@/lib/mundane-items-seed';
 import { ROLEPLAY_SEEDS } from '@/lib/roleplay-seeds';
 import { GROUP_GREETING_SEEDS } from '@/lib/group-greeting-seeds';
 import { GUILD_EVENT_SEEDS } from '@/lib/guild-event-seeds';
+import { ZONE_SEEDS } from '@/lib/zone-seeds';
 
 export type GuildNote = {
   id: number;
@@ -252,7 +253,7 @@ export type CharacterOpinion = {
 };
 
 const databasePromise = SQLite.openDatabaseAsync('guild.db');
-const latestMigrationVersion = 36;
+const latestMigrationVersion = 40;
 
 async function getDatabase() {
   return databasePromise;
@@ -487,6 +488,30 @@ export async function initializeDatabase() {
   if (currentVersion < 36) {
     await runMigrationV36(database);
     currentVersion = 36;
+    await database.runAsync('UPDATE schema_migrations SET version = ? WHERE id = 1;', currentVersion);
+  }
+
+  if (currentVersion < 37) {
+    await runMigrationV37(database);
+    currentVersion = 37;
+    await database.runAsync('UPDATE schema_migrations SET version = ? WHERE id = 1;', currentVersion);
+  }
+
+  if (currentVersion < 38) {
+    await runMigrationV38(database);
+    currentVersion = 38;
+    await database.runAsync('UPDATE schema_migrations SET version = ? WHERE id = 1;', currentVersion);
+  }
+
+  if (currentVersion < 39) {
+    await runMigrationV39(database);
+    currentVersion = 39;
+    await database.runAsync('UPDATE schema_migrations SET version = ? WHERE id = 1;', currentVersion);
+  }
+
+  if (currentVersion < 40) {
+    await runMigrationV40(database);
+    currentVersion = 40;
     await database.runAsync('UPDATE schema_migrations SET version = ? WHERE id = 1;', currentVersion);
   }
 
@@ -2619,4 +2644,141 @@ export async function listRumoursKnownBy(characterUid: string): Promise<Rumour[]
 export async function markRumourUsed(uid: string): Promise<void> {
   const database = await getDatabase();
   await database.runAsync(`UPDATE rumours SET used = 1 WHERE uid = ?;`, uid);
+}
+
+// ─── Zones ────────────────────────────────────────────────────────────────────
+
+export type Zone = {
+  uid: string;
+  name: string;
+  biome: string;
+  description: string;
+  createdAt: string;
+};
+
+async function runMigrationV37(database: SQLite.SQLiteDatabase) {
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS zones (
+      uid         TEXT PRIMARY KEY NOT NULL,
+      name        TEXT NOT NULL,
+      biome       TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      created_at  TEXT NOT NULL
+    );
+  `);
+}
+
+async function runMigrationV38(database: SQLite.SQLiteDatabase) {
+  const now = new Date().toISOString();
+  for (const z of ZONE_SEEDS) {
+    await database.runAsync(
+      `INSERT OR IGNORE INTO zones (uid, name, biome, description, created_at) VALUES (?, ?, ?, ?, ?);`,
+      z.uid, z.name, z.biome, z.description, now,
+    );
+  }
+}
+
+async function runMigrationV39(database: SQLite.SQLiteDatabase) {
+  // Re-upsert seeds with updated descriptions — replaces any existing seed rows.
+  const now = new Date().toISOString();
+  for (const z of ZONE_SEEDS) {
+    await database.runAsync(
+      `INSERT INTO zones (uid, name, biome, description, created_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(uid) DO UPDATE SET name = excluded.name, biome = excluded.biome, description = excluded.description;`,
+      z.uid, z.name, z.biome, z.description, now,
+    );
+  }
+}
+
+export async function insertZone(zone: Zone): Promise<void> {
+  const database = await getDatabase();
+  await database.runAsync(
+    `INSERT INTO zones (uid, name, biome, description, created_at) VALUES (?, ?, ?, ?, ?);`,
+    zone.uid, zone.name, zone.biome, zone.description, zone.createdAt,
+  );
+}
+
+export async function listZones(): Promise<Zone[]> {
+  const database = await getDatabase();
+  const rows = await database.getAllAsync<{ uid: string; name: string; biome: string; description: string; created_at: string }>(
+    `SELECT uid, name, biome, description, created_at FROM zones ORDER BY name ASC;`
+  );
+  return rows.map((r) => ({ uid: r.uid, name: r.name, biome: r.biome, description: r.description, createdAt: r.created_at }));
+}
+
+export async function updateZone(uid: string, name: string, biome: string, description: string): Promise<void> {
+  const database = await getDatabase();
+  await database.runAsync(
+    `UPDATE zones SET name = ?, biome = ?, description = ? WHERE uid = ?;`,
+    name, biome, description, uid,
+  );
+}
+
+export async function deleteZone(uid: string): Promise<void> {
+  const database = await getDatabase();
+  await database.runAsync(`DELETE FROM zones WHERE uid = ?;`, uid);
+}
+
+// ─── NPCs ─────────────────────────────────────────────────────────────────────
+
+export type Npc = {
+  uid: string;
+  name: string;
+  role: string;
+  title: string | null;
+  physicalDescription: string;
+  personalityDescription: string;
+  createdAt: string;
+};
+
+async function runMigrationV40(database: SQLite.SQLiteDatabase) {
+  await database.execAsync(`
+    CREATE TABLE IF NOT EXISTS npcs (
+      uid                     TEXT PRIMARY KEY NOT NULL,
+      name                    TEXT NOT NULL,
+      role                    TEXT NOT NULL,
+      title                   TEXT,
+      physical_description    TEXT NOT NULL DEFAULT '',
+      personality_description TEXT NOT NULL DEFAULT '',
+      created_at              TEXT NOT NULL
+    );
+  `);
+}
+
+export async function insertNpc(npc: Npc): Promise<void> {
+  const database = await getDatabase();
+  await database.runAsync(
+    `INSERT INTO npcs (uid, name, role, title, physical_description, personality_description, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?);`,
+    npc.uid, npc.name, npc.role, npc.title ?? null,
+    npc.physicalDescription, npc.personalityDescription, npc.createdAt,
+  );
+}
+
+export async function listNpcs(): Promise<Npc[]> {
+  const database = await getDatabase();
+  const rows = await database.getAllAsync<{
+    uid: string; name: string; role: string; title: string | null;
+    physical_description: string; personality_description: string; created_at: string;
+  }>(`SELECT uid, name, role, title, physical_description, personality_description, created_at FROM npcs ORDER BY name ASC;`);
+  return rows.map((r) => ({
+    uid: r.uid, name: r.name, role: r.role, title: r.title ?? null,
+    physicalDescription: r.physical_description,
+    personalityDescription: r.personality_description,
+    createdAt: r.created_at,
+  }));
+}
+
+export async function updateNpc(npc: Npc): Promise<void> {
+  const database = await getDatabase();
+  await database.runAsync(
+    `UPDATE npcs SET name = ?, role = ?, title = ?, physical_description = ?, personality_description = ? WHERE uid = ?;`,
+    npc.name, npc.role, npc.title ?? null,
+    npc.physicalDescription, npc.personalityDescription, npc.uid,
+  );
+}
+
+export async function deleteNpc(uid: string): Promise<void> {
+  const database = await getDatabase();
+  await database.runAsync(`DELETE FROM npcs WHERE uid = ?;`, uid);
 }

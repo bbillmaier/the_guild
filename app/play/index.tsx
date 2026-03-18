@@ -65,6 +65,7 @@ export default function TavernScreen() {
   // Chain pivot — shown after a chain quest completes
   const [chainPivot, setChainPivot]         = useState<{
     chain: QuestChain;
+    questNarrative: string;
     pivotNarrative: string;
     outcome: 'success' | 'failure';
     isFinal: boolean;
@@ -116,32 +117,34 @@ export default function TavernScreen() {
       let pendingChainPivot: { chain: QuestChain; pivotNarrative: string; outcome: 'success' | 'failure'; isFinal: boolean } | null = null;
       for (const pending of due) {
         await applyQuestCompletion(pending);
-        returns.push({ title: pending.questTitle, outcome: pending.outcome, partyNames: pending.partyNames });
-        // Check if this was a chain quest
-        if (!pendingChainPivot) {
-          const quest = await getGuildQuestByUid(pending.questUid).catch(() => null);
-          if (quest?.chainUid) {
-            const chain = await getQuestChain(quest.chainUid).catch(() => null);
-            if (chain && chain.status === 'active') {
-              const history = await getQuestHistoryByQuestUid(pending.questUid).catch(() => null);
-              const narrative = history?.summary ?? 'The quest was completed.';
-              const isFinal = chain.depth >= chain.maxDepth;
-              // Append this quest's result to story so far
-              const newStory = [
-                chain.storySoFar,
-                `Quest ${chain.depth} (${pending.outcome}): ${narrative.slice(0, 300)}`,
-              ].filter(Boolean).join('\n');
-              await updateQuestChainStory(chain.uid, newStory, chain.depth).catch(console.error);
-              if (isFinal) {
-                await updateQuestChainStatus(chain.uid, pending.outcome === 'success' ? 'completed' : 'failed').catch(console.error);
-              }
-              setRestStep('The story takes a turn...');
-              const pivot = await generateChainPivot({ ...chain, storySoFar: newStory }, narrative, pending.outcome, pending.partyNames, setRestStep).catch(() => null);
-              if (pivot) {
-                pendingChainPivot = { chain: { ...chain, storySoFar: newStory }, pivotNarrative: pivot, outcome: pending.outcome, isFinal };
-              }
+        // Check if this was a chain quest before deciding whether to show the return modal
+        const quest = await getGuildQuestByUid(pending.questUid).catch(() => null);
+        const isChainQuest = !!quest?.chainUid;
+        if (quest?.chainUid && !pendingChainPivot) {
+          const chain = await getQuestChain(quest.chainUid).catch(() => null);
+          if (chain && chain.status === 'active') {
+            const history = await getQuestHistoryByQuestUid(pending.questUid).catch(() => null);
+            const narrative = history?.summary ?? 'The quest was completed.';
+            const isFinal = chain.depth >= chain.maxDepth;
+            // Append this quest's result to story so far
+            const newStory = [
+              chain.storySoFar,
+              `Quest ${chain.depth} (${pending.outcome}): ${narrative.slice(0, 300)}`,
+            ].filter(Boolean).join('\n');
+            await updateQuestChainStory(chain.uid, newStory, chain.depth).catch(console.error);
+            if (isFinal) {
+              await updateQuestChainStatus(chain.uid, pending.outcome === 'success' ? 'completed' : 'failed').catch(console.error);
+            }
+            setRestStep('The story takes a turn...');
+            const pivot = await generateChainPivot({ ...chain, storySoFar: newStory }, narrative, pending.outcome, pending.partyNames, setRestStep).catch(() => null);
+            if (pivot) {
+              pendingChainPivot = { chain: { ...chain, storySoFar: newStory }, questNarrative: narrative, pivotNarrative: pivot, outcome: pending.outcome, isFinal };
             }
           }
+        }
+        // Chain quests skip the generic return modal — the chain pivot handles the reveal
+        if (!isChainQuest) {
+          returns.push({ title: pending.questTitle, outcome: pending.outcome, partyNames: pending.partyNames });
         }
       }
       const remaining = allPending.filter((p) => p.revealDay > next);
@@ -526,50 +529,54 @@ export default function TavernScreen() {
 
     {/* ── Chain Pivot Modal ── */}
     <Modal visible={!!chainPivot} transparent animationType="fade">
-      <View style={styles.eventOverlay}>
-        <View style={styles.eventCard}>
+      <View style={styles.eventBackdrop}>
+        <View style={styles.chainCard}>
           {chainPivot && (
             <>
-              <View style={styles.eventHeader}>
-                <ThemedText style={styles.eventHeaderIcon}>◆</ThemedText>
-                <View style={styles.eventHeaderText}>
+              <View style={styles.chainCardHeader}>
+                <ThemedText style={styles.chainCardIcon}>◆</ThemedText>
+                <View style={{ flex: 1 }}>
                   <ThemedText style={styles.chainSubtitle}>
                     {chainPivot.chain.name} — Part {chainPivot.chain.depth} of {chainPivot.chain.maxDepth}
                   </ThemedText>
-                  <ThemedText style={styles.eventHeaderTitle}>
+                  <ThemedText style={styles.chainCardTitle}>
                     {chainPivot.isFinal
                       ? (chainPivot.outcome === 'success' ? 'Chain Complete' : 'Chain Failed')
                       : 'The Story Continues'}
                   </ThemedText>
                 </View>
               </View>
-              <ThemedText style={styles.eventNarrative}>{chainPivot.pivotNarrative}</ThemedText>
-              {!chainPivot.isFinal && (
-                <>
+              <ScrollView style={styles.chainScrollBody} contentContainerStyle={styles.chainScrollContent}>
+                <ThemedText style={styles.chainNarrative}>{chainPivot.questNarrative}</ThemedText>
+                <View style={styles.chainDivider} />
+                <ThemedText style={styles.chainPivotText}>{chainPivot.pivotNarrative}</ThemedText>
+                {!chainPivot.isFinal && (
                   <TextInput
                     style={styles.chainInput}
                     value={chainAnswer}
                     onChangeText={setChainAnswer}
-                    placeholder="How does the guild respond?"
-                    placeholderTextColor="#9BA1A6"
+                    placeholder="Type a number or describe your own response..."
+                    placeholderTextColor="#6B5B3E"
                     multiline
                     editable={!chainAnswering}
                   />
-                  <Pressable
-                    style={[styles.eventDismiss, (!chainAnswer.trim() || chainAnswering) && styles.eventDismissDisabled]}
-                    onPress={handleChainAnswer}
-                    disabled={!chainAnswer.trim() || chainAnswering}
-                  >
-                    {chainAnswering
-                      ? <ActivityIndicator size="small" color="#FFFFFF" />
-                      : <ThemedText style={styles.eventDismissText}>Generate Next Quest</ThemedText>
-                    }
-                  </Pressable>
-                </>
+                )}
+              </ScrollView>
+              {!chainPivot.isFinal && (
+                <Pressable
+                  style={[styles.chainDismiss, (!chainAnswer.trim() || chainAnswering) && styles.eventDismissDisabled]}
+                  onPress={handleChainAnswer}
+                  disabled={!chainAnswer.trim() || chainAnswering}
+                >
+                  {chainAnswering
+                    ? <ActivityIndicator size="small" color="#D4A853" />
+                    : <ThemedText style={styles.chainDismissText}>Generate Next Quest</ThemedText>
+                  }
+                </Pressable>
               )}
               {chainPivot.isFinal && (
-                <Pressable style={styles.eventDismiss} onPress={() => { setChainPivot(null); setChainAnswer(''); }}>
-                  <ThemedText style={styles.eventDismissText}>Close</ThemedText>
+                <Pressable style={styles.chainDismiss} onPress={() => { setChainPivot(null); setChainAnswer(''); }}>
+                  <ThemedText style={styles.chainDismissText}>Close</ThemedText>
                 </Pressable>
               )}
             </>
@@ -957,23 +964,90 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#2E5A1C',
   },
+  chainCard: {
+    backgroundColor: '#1A1510',
+    borderRadius: 16,
+    width: '100%',
+    maxHeight: '85%',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#5C4420',
+  },
+  chainCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2E2418',
+    backgroundColor: '#12100C',
+  },
+  chainCardIcon: {
+    fontSize: 20,
+    color: '#D4A853',
+  },
+  chainCardTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#F0D9A0',
+  },
   chainSubtitle: {
     fontSize: 11,
-    color: '#7A4F1E',
+    color: '#A0824A',
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
+  chainScrollBody: {
+    maxHeight: 420,
+  },
+  chainScrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  chainNarrative: {
+    fontSize: 13,
+    lineHeight: 22,
+    color: '#B8A888',
+    paddingBottom: 4,
+  },
+  chainDivider: {
+    height: 1,
+    backgroundColor: '#2E2418',
+    marginVertical: 14,
+  },
+  chainPivotText: {
+    fontSize: 14,
+    lineHeight: 23,
+    color: '#E8DFC8',
+    marginBottom: 14,
+  },
   chainInput: {
     borderWidth: 1,
-    borderColor: '#D4B896',
+    borderColor: '#5C4420',
     borderRadius: 8,
     padding: 10,
     fontSize: 13,
-    color: '#11181C',
+    color: '#E8DFC8',
+    backgroundColor: '#0E0C09',
     minHeight: 72,
     textAlignVertical: 'top',
     marginBottom: 4,
+  },
+  chainDismiss: {
+    borderTopWidth: 1,
+    borderTopColor: '#2E2418',
+    paddingVertical: 14,
+    alignItems: 'center',
+    backgroundColor: '#12100C',
+  },
+  chainDismissText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#D4A853',
   },
   onQuestRow: {
     flexDirection: 'row',

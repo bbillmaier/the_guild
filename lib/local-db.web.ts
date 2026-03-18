@@ -1558,3 +1558,121 @@ export async function initCharacterMundaneItems(characterUid: string, className:
     await eRun(`INSERT INTO outfit_items (outfit_set_id, inventory_item_id, slot) VALUES (?, ?, ?);`, [outfitId, inventoryId, slot]);
   }
 }
+
+// ─── Zones ────────────────────────────────────────────────────────────────────
+
+import { ZONE_SEEDS } from '@/lib/zone-seeds';
+
+export type Zone = {
+  uid: string;
+  name: string;
+  biome: string;
+  description: string;
+  createdAt: string;
+};
+
+function readZones(): Zone[] {
+  try { return JSON.parse(localStorage.getItem('zones') ?? '[]') as Zone[]; } catch { return []; }
+}
+function writeZones(zones: Zone[]) {
+  localStorage.setItem('zones', JSON.stringify(zones));
+}
+
+export async function insertZone(zone: Zone): Promise<void> {
+  if (isElectron) {
+    await eRun(`INSERT INTO zones (uid, name, biome, description, created_at) VALUES (?, ?, ?, ?, ?);`, [zone.uid, zone.name, zone.biome, zone.description, zone.createdAt]);
+    return;
+  }
+  writeZones([...readZones(), zone]);
+}
+
+export async function listZones(): Promise<Zone[]> {
+  if (isElectron) {
+    const rows = await eAll<{ uid: string; name: string; biome: string; description: string; created_at: string }>(`SELECT uid, name, biome, description, created_at FROM zones ORDER BY name ASC;`);
+    return rows.map((r) => ({ uid: r.uid, name: r.name, biome: r.biome, description: r.description, createdAt: r.created_at }));
+  }
+  const existing = readZones();
+  const now = new Date().toISOString();
+  // Upsert seeds — ensures new/updated seed descriptions are always applied.
+  const existingByUid = new Map(existing.map((z) => [z.uid, z]));
+  for (const seed of ZONE_SEEDS) {
+    existingByUid.set(seed.uid, { ...seed, createdAt: existingByUid.get(seed.uid)?.createdAt ?? now });
+  }
+  const merged = Array.from(existingByUid.values());
+  writeZones(merged);
+  return [...merged].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function updateZone(uid: string, name: string, biome: string, description: string): Promise<void> {
+  if (isElectron) {
+    await eRun(`UPDATE zones SET name = ?, biome = ?, description = ? WHERE uid = ?;`, [name, biome, description, uid]);
+    return;
+  }
+  writeZones(readZones().map((z) => z.uid === uid ? { ...z, name, biome, description } : z));
+}
+
+export async function deleteZone(uid: string): Promise<void> {
+  if (isElectron) { await eRun(`DELETE FROM zones WHERE uid = ?;`, [uid]); return; }
+  writeZones(readZones().filter((z) => z.uid !== uid));
+}
+
+// ─── NPCs ─────────────────────────────────────────────────────────────────────
+
+export type Npc = {
+  uid: string;
+  name: string;
+  role: string;
+  title: string | null;
+  physicalDescription: string;
+  personalityDescription: string;
+  createdAt: string;
+};
+
+function readNpcs(): Npc[] {
+  try { return JSON.parse(localStorage.getItem('npcs') ?? '[]') as Npc[]; } catch { return []; }
+}
+function writeNpcs(npcs: Npc[]) {
+  localStorage.setItem('npcs', JSON.stringify(npcs));
+}
+
+export async function insertNpc(npc: Npc): Promise<void> {
+  if (isElectron) {
+    await eRun(
+      `INSERT INTO npcs (uid, name, role, title, physical_description, personality_description, created_at) VALUES (?, ?, ?, ?, ?, ?, ?);`,
+      [npc.uid, npc.name, npc.role, npc.title ?? null, npc.physicalDescription, npc.personalityDescription, npc.createdAt],
+    );
+    return;
+  }
+  writeNpcs([...readNpcs(), npc]);
+}
+
+export async function listNpcs(): Promise<Npc[]> {
+  if (isElectron) {
+    const rows = await eAll<{ uid: string; name: string; role: string; title: string | null; physical_description: string; personality_description: string; created_at: string }>(
+      `SELECT uid, name, role, title, physical_description, personality_description, created_at FROM npcs ORDER BY name ASC;`
+    );
+    return rows.map((r) => ({
+      uid: r.uid, name: r.name, role: r.role, title: r.title ?? null,
+      physicalDescription: r.physical_description,
+      personalityDescription: r.personality_description,
+      createdAt: r.created_at,
+    }));
+  }
+  return [...readNpcs()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function updateNpc(npc: Npc): Promise<void> {
+  if (isElectron) {
+    await eRun(
+      `UPDATE npcs SET name = ?, role = ?, title = ?, physical_description = ?, personality_description = ? WHERE uid = ?;`,
+      [npc.name, npc.role, npc.title ?? null, npc.physicalDescription, npc.personalityDescription, npc.uid],
+    );
+    return;
+  }
+  writeNpcs(readNpcs().map((n) => n.uid === npc.uid ? npc : n));
+}
+
+export async function deleteNpc(uid: string): Promise<void> {
+  if (isElectron) { await eRun(`DELETE FROM npcs WHERE uid = ?;`, [uid]); return; }
+  writeNpcs(readNpcs().filter((n) => n.uid !== uid));
+}

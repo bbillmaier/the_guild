@@ -163,35 +163,25 @@ export default function HomeScreen() {
 
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
 
-        {/* ── Nav grid ── */}
-        <View style={styles.navRow}>
-          <NavCard label="Characters" sub="Manage your party"        color="#0a7ea4" onPress={() => router.push('/view_char_list')} />
-          <NavCard label="Enemies"    sub="Track your foes"          color="#0a7ea4" onPress={() => router.push('/view_enemy_list')} />
-        </View>
-        <View style={styles.navRow}>
-          <NavCard label="Combat"     sub="Run a battle"             color="#8B0000" onPress={() => router.push('/view_combat')} />
-          <NavCard label="Items"      sub="Forge equipment"          color="#5C3D8F" onPress={() => router.push('/view_items')} />
-        </View>
-        <View style={styles.navRow}>
-          <NavCard label="Equip"      sub="Assign items"             color="#5C3D8F" onPress={() => router.push('/view_equip_items')} />
-          <NavCard label="Quests"     sub="Generate adventures"      color="#2E5A1C" onPress={() => router.push('/view_quests')} />
-        </View>
-        <View style={styles.navRow}>
-          <NavCard label="Roleplay"   sub="Quest scenarios"          color="#7A4F1E" onPress={() => router.push('/view_roleplay_prompts')} />
-          <NavCard label="History"    sub="Character memories"       color="#1A5276" onPress={() => router.push('/view_history')} />
-        </View>
-        <View style={styles.navRow}>
-          <NavCard label="Greetings"     sub="Chat opening lines"       color="#6C3483" onPress={() => router.push('/view_greetings')} />
-          <NavCard label="Clothing"      sub="Manage mundane items"     color="#7A4F1E" onPress={() => router.push('/view_mundane_items')} />
-        </View>
-        <View style={styles.navRow}>
-          <NavCard label="Relationships" sub="Character bond scores"    color="#1A5276" onPress={() => router.push('/view_relationships')} />
-          <NavCard label="Group Scenes" sub="Party chat openers"       color="#3A2D5C" onPress={() => router.push('/view_group_greetings')} />
-        </View>
-        <View style={styles.navRow}>
-          <NavCard label="Guild Events" sub="Random daily moments"     color="#2E5A1C" onPress={() => router.push('/view_guild_events')} />
-          <View style={{ flex: 1 }} />
-        </View>
+        {/* ── Category tiles ── */}
+        <CategoryTile
+          label="Characters"
+          sub="Party members · items · relationships · history · dialogue"
+          color="#0a7ea4"
+          onPress={() => router.push('/admin_characters' as never)}
+        />
+        <CategoryTile
+          label="Adventures"
+          sub="Enemies · quests · roleplay · guild events · combat"
+          color="#7A4F1E"
+          onPress={() => router.push('/admin_adventures' as never)}
+        />
+        <CategoryTile
+          label="World"
+          sub="Zones · NPCs · cities · factions"
+          color="#2E5A1C"
+          onPress={() => router.push('/admin_world' as never)}
+        />
 
         {/* ── LLM Endpoint ── */}
         <View style={styles.card}>
@@ -368,11 +358,14 @@ export default function HomeScreen() {
   );
 }
 
-function NavCard({ label, sub, color, onPress }: { label: string; sub: string; color: string; onPress: () => void }) {
+function CategoryTile({ label, sub, color, onPress }: { label: string; sub: string; color: string; onPress: () => void }) {
   return (
-    <Pressable style={[styles.navCard, { backgroundColor: color }]} onPress={onPress}>
-      <ThemedText style={styles.navCardTitle}>{label}</ThemedText>
-      <ThemedText style={styles.navCardSub}>{sub}</ThemedText>
+    <Pressable style={[styles.categoryTile, { backgroundColor: color }]} onPress={onPress}>
+      <View style={styles.categoryTileInner}>
+        <ThemedText style={styles.categoryTileLabel}>{label}</ThemedText>
+        <ThemedText style={styles.categoryTileSub}>{sub}</ThemedText>
+      </View>
+      <ThemedText style={styles.categoryTileChevron}>›</ThemedText>
     </Pressable>
   );
 }
@@ -442,26 +435,32 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
 
-  // Nav grid
-  navRow: {
+  // Category tiles
+  categoryTile: {
+    borderRadius: 14,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
     flexDirection: 'row',
-    gap: 12,
+    alignItems: 'center',
   },
-  navCard: {
+  categoryTileInner: {
     flex: 1,
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    gap: 3,
+    gap: 4,
   },
-  navCardTitle: {
+  categoryTileLabel: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 19,
+    fontWeight: '800',
   },
-  navCardSub: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 11,
+  categoryTileSub: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 12,
+  },
+  categoryTileChevron: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 28,
+    fontWeight: '300',
+    lineHeight: 30,
   },
 
   // Section cards
